@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', Arial, sans-serif;
+    font-size: 11pt;
+    color: #1a1a2e;
+    line-height: 1.6;
+    padding: 0;
+  }
+
+  .page {
+    padding: 40px 50px;
+    max-width: 800px;
+    margin: 0 auto;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 3px solid #2563eb;
+    padding-bottom: 20px;
+    margin-bottom: 30px;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .logo-box {
+    width: 36px;
+    height: 36px;
+    background: #2563eb;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 700;
+    font-size: 13pt;
+  }
+
+  .logo-text {
+    font-size: 14pt;
+    font-weight: 700;
+    color: #1a1a2e;
+  }
+
+  .report-meta {
+    text-align: right;
+    font-size: 9pt;
+    color: #6b7280;
+  }
+
+  .report-meta .report-title {
+    font-size: 11pt;
+    font-weight: 600;
+    color: #1a1a2e;
+  }
+
+  /* Status banner */
+  .status-banner {
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .status-banner.risk-lav { background: #f0fdf4; border: 1px solid #bbf7d0; }
+  .status-banner.risk-middels { background: #fffbeb; border: 1px solid #fde68a; }
+  .status-banner.risk-høy { background: #fef2f2; border: 1px solid #fecaca; }
+  .status-banner.risk-ukjent { background: #f9fafb; border: 1px solid #e5e7eb; }
+
+  .status-item { text-align: center; }
+  .status-label { font-size: 8pt; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
+  .status-value { font-size: 13pt; font-weight: 700; margin-top: 2px; }
+
+  .risk-lav .status-value { color: #16a34a; }
+  .risk-middels .status-value { color: #d97706; }
+  .risk-høy .status-value { color: #dc2626; }
+
+  /* Section */
+  .section {
+    margin-bottom: 28px;
+  }
+
+  .section-title {
+    font-size: 12pt;
+    font-weight: 700;
+    color: #1a1a2e;
+    border-bottom: 1px solid #e5e7eb;
+    padding-bottom: 6px;
+    margin-bottom: 14px;
+  }
+
+  /* Info grid */
+  .info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .info-item { }
+  .info-key { font-size: 8.5pt; color: #6b7280; margin-bottom: 2px; }
+  .info-val { font-size: 10.5pt; font-weight: 500; }
+
+  /* AI Summary */
+  .ai-summary {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    padding: 16px;
+    font-size: 10.5pt;
+    line-height: 1.7;
+    color: #1e3a5f;
+  }
+
+  .ai-note {
+    font-size: 8pt;
+    color: #93c5fd;
+    margin-top: 8px;
+    font-style: italic;
+  }
+
+  /* Rule results */
+  .rule-item {
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    border-left: 4px solid;
+  }
+
+  .rule-item.pass { background: #f0fdf4; border-color: #16a34a; }
+  .rule-item.warn { background: #fffbeb; border-color: #d97706; }
+  .rule-item.fail { background: #fef2f2; border-color: #dc2626; }
+  .rule-item.unknown { background: #f9fafb; border-color: #9ca3af; }
+
+  .rule-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+
+  .rule-name { font-size: 10pt; font-weight: 600; }
+  .rule-code { font-size: 8pt; color: #6b7280; }
+  .rule-badge {
+    font-size: 8pt;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  .badge-pass { background: #dcfce7; color: #16a34a; }
+  .badge-warn { background: #fef3c7; color: #d97706; }
+  .badge-fail { background: #fee2e2; color: #dc2626; }
+  .badge-unknown { background: #f3f4f6; color: #6b7280; }
+
+  .rule-explanation { font-size: 9.5pt; color: #374151; }
+  .rule-refs { font-size: 8pt; color: #9ca3af; margin-top: 4px; }
+
+  /* Lists */
+  .step-list { list-style: none; }
+  .step-list li {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 8px;
+    font-size: 10pt;
+  }
+
+  .step-num {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    background: #2563eb;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 8pt;
+    font-weight: 700;
+    margin-top: 1px;
+  }
+
+  .doc-list { list-style: none; }
+  .doc-list li {
+    padding: 6px 0;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 10pt;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .doc-list li::before {
+    content: "□";
+    color: #9ca3af;
+    font-size: 12pt;
+  }
+
+  /* Footer */
+  .footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid #e5e7eb;
+    font-size: 8pt;
+    color: #9ca3af;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .disclaimer {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 9pt;
+    color: #78350f;
+    margin-top: 20px;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="logo">
+      <div class="logo-box">AB</div>
+      <div class="logo-text">AI Byggesøknad</div>
+    </div>
+    <div class="report-meta">
+      <div class="report-title">Forhåndsvurdering</div>
+      <div>Rapport-ID: {{ project_id[:8] }}</div>
+      <div>{{ analyzed_at }}</div>
+    </div>
+  </div>
+
+  <!-- Status banner -->
+  <div class="status-banner risk-{{ risk_level }}">
+    <div class="status-item">
+      <div class="status-label">Søknadsplikt</div>
+      <div class="status-value">{{ application_status }}</div>
+    </div>
+    <div class="status-item">
+      <div class="status-label">Risikonivå</div>
+      <div class="status-value">{{ risk_level | capitalize }}</div>
+    </div>
+    <div class="status-item">
+      <div class="status-label">Tiltakstype</div>
+      <div class="status-value">{{ measure_type }}</div>
+    </div>
+    <div class="status-item">
+      <div class="status-label">Regelresultater</div>
+      <div class="status-value">{{ pass_count }}✓ {{ warn_count }}! {{ fail_count }}✗</div>
+    </div>
+  </div>
+
+  <!-- Project info -->
+  <div class="section">
+    <div class="section-title">Prosjektinformasjon</div>
+    <div class="info-grid">
+      <div class="info-item">
+        <div class="info-key">Adresse</div>
+        <div class="info-val">{{ address_text }}</div>
+      </div>
+      {% if property %}
+      <div class="info-item">
+        <div class="info-key">Eiendom</div>
+        <div class="info-val">Gnr {{ property.gnr }}/Bnr {{ property.bnr }}, {{ property.municipality }}</div>
+      </div>
+      {% endif %}
+      <div class="info-item">
+        <div class="info-key">Tiltaksbeskrivelse</div>
+        <div class="info-val">{{ intent_text }}</div>
+      </div>
+      {% if plan %}
+      <div class="info-item">
+        <div class="info-key">Planstatus</div>
+        <div class="info-val">{{ plan.planStatus | capitalize }} – {{ plan.arealFormål }}</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- AI Summary -->
+  {% if ai_summary %}
+  <div class="section">
+    <div class="section-title">AI-oppsummering</div>
+    <div class="ai-summary">
+      {{ ai_summary }}
+      <div class="ai-note">Basert på strukturerte data og regelmotor. Ikke juridisk rådgivning.</div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Rule results -->
+  <div class="section">
+    <div class="section-title">Regelresultater ({{ rule_results | length }} regler evaluert)</div>
+    {% for rule in rule_results %}
+    <div class="rule-item {{ rule.status }}">
+      <div class="rule-header">
+        <div>
+          <span class="rule-name">{{ rule.ruleName }}</span>
+          <span class="rule-code"> · {{ rule.ruleCode }}</span>
+        </div>
+        <span class="rule-badge badge-{{ rule.status }}">
+          {% if rule.status == 'pass' %}OK{% elif rule.status == 'warn' %}Advarsel{% elif rule.status == 'fail' %}Feil{% else %}Ukjent{% endif %}
+        </span>
+      </div>
+      <div class="rule-explanation">{{ rule.explanation }}</div>
+      {% if rule.evidenceRefs %}
+      <div class="rule-refs">Kilder: {{ rule.evidenceRefs | join(', ') }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Next steps -->
+  {% if next_steps %}
+  <div class="section">
+    <div class="section-title">Neste steg</div>
+    <ul class="step-list">
+      {% for step in next_steps %}
+      <li>
+        <span class="step-num">{{ loop.index }}</span>
+        <span>{{ step }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <!-- Document requirements -->
+  {% if doc_requirements %}
+  <div class="section">
+    <div class="section-title">Sannsynlige dokumentkrav</div>
+    <ul class="doc-list">
+      {% for doc in doc_requirements %}
+      <li>{{ doc }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <!-- Disclaimer -->
+  <div class="disclaimer">
+    <strong>Viktig:</strong> Denne rapporten er en veiledende forhåndsvurdering basert på offentlig
+    tilgjengelige geodata og en regelmotor. Den er ikke en juridisk bindende vurdering og erstatter
+    ikke kommunal saksbehandling. Kontakt alltid kommunen for endelig avklaring.
+    AI Byggesøknad er et privat beslutningsstøtteverktøy og er ikke en offentlig myndighet.
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <span>AI Byggesøknad – Forhåndsvurdering</span>
+    <span>{{ analyzed_at }} · Rapport {{ project_id[:8] }}</span>
+  </div>
+
+</div>
+</body>
+</html>

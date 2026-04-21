@@ -1,0 +1,13 @@
+{
+  "name": "ai-byggesoknad",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-drevet byggesøknadsplattform for Norge",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "lint": "pnpm --filter web lint",
+    "type-check": "pnpm --filter web type-check"
+  },
+  "packageManager": "pnpm@9.0.0"
+}
