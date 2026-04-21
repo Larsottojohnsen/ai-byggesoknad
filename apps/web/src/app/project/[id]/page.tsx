@@ -8,6 +8,7 @@ import { useProjectStore } from '@/store/projectStore'
 import { MapView } from '@/components/map/MapView'
 import { RiskBadge } from '@/components/ui/RiskBadge'
 import { RuleCard } from '@/components/ui/RuleCard'
+import { DocumentPanel } from '@/components/documents/DocumentPanel'
 import { getMeasureTypeLabel, formatDate } from '@/lib/utils'
 import {
   CheckCircle,
@@ -391,6 +392,14 @@ export default function ProjectPage() {
                 </div>
               </div>
             )}
+
+            {/* Document generation */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <DocumentPanel
+                projectId={id}
+                applicationRequired={result.applicationRequired}
+              />
+            </div>
 
             {/* Disclaimer */}
             <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 text-xs text-gray-500 leading-relaxed">

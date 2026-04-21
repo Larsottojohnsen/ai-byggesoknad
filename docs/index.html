@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Byggesøknad – Fra idé til søknad på minutter</title>
+  <meta name="description" content="Norsk AI-plattform som analyserer din eiendom, sjekker reguleringsplaner og faredata, og forteller deg om du trenger søknad – på sekunder." />
+  <meta property="og:title" content="AI Byggesøknad" />
+  <meta property="og:description" content="Fra idé til byggesøknad på minutter. Automatisk geodatainnhenting, regelmotor og AI-assistert dokumentgenerering." />
+  <meta property="og:type" content="website" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue: #2563eb;
+      --blue-dark: #1d4ed8;
+      --blue-light: #eff6ff;
+      --blue-mid: #bfdbfe;
+      --green: #16a34a;
+      --green-light: #f0fdf4;
+      --amber: #d97706;
+      --amber-light: #fffbeb;
+      --red: #dc2626;
+      --red-light: #fef2f2;
+      --gray-50: #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-200: #e5e7eb;
+      --gray-400: #9ca3af;
+      --gray-500: #6b7280;
+      --gray-700: #374151;
+      --gray-900: #111827;
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      color: var(--gray-900);
+      background: #fff;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* ── NAV ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--gray-200);
+      padding: 0 24px;
+    }
+    .nav-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--gray-900);
+    }
+    .logo-icon {
+      width: 34px; height: 34px;
+      background: var(--blue);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff;
+      font-weight: 800;
+      font-size: 14px;
+      letter-spacing: -0.5px;
+    }
+    .logo-text { font-weight: 700; font-size: 15px; }
+    .nav-links { display: flex; gap: 28px; list-style: none; }
+    .nav-links a { text-decoration: none; color: var(--gray-500); font-size: 14px; font-weight: 500; transition: color .2s; }
+    .nav-links a:hover { color: var(--gray-900); }
+    .nav-cta {
+      background: var(--blue); color: #fff;
+      padding: 8px 18px; border-radius: 8px;
+      text-decoration: none; font-size: 14px; font-weight: 600;
+      transition: background .2s;
+    }
+    .nav-cta:hover { background: var(--blue-dark); }
+
+    /* ── HERO ── */
+    .hero {
+      background: linear-gradient(135deg, #f0f7ff 0%, #ffffff 50%, #f0fdf4 100%);
+      padding: 100px 24px 80px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -200px; left: 50%;
+      transform: translateX(-50%);
+      width: 800px; height: 800px;
+      background: radial-gradient(circle, rgba(37,99,235,0.06) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--blue-light); color: var(--blue);
+      border: 1px solid var(--blue-mid);
+      padding: 5px 14px; border-radius: 999px;
+      font-size: 13px; font-weight: 600;
+      margin-bottom: 28px;
+    }
+    .hero-badge-dot {
+      width: 6px; height: 6px;
+      background: var(--blue); border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .hero h1 {
+      font-size: clamp(36px, 6vw, 68px);
+      font-weight: 900;
+      line-height: 1.08;
+      letter-spacing: -2px;
+      color: var(--gray-900);
+      max-width: 820px;
+      margin: 0 auto 24px;
+    }
+    .hero h1 span { color: var(--blue); }
+    .hero p {
+      font-size: clamp(17px, 2vw, 20px);
+      color: var(--gray-500);
+      max-width: 560px;
+      margin: 0 auto 44px;
+      line-height: 1.7;
+    }
+    .hero-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+    .btn-primary {
+      background: var(--blue); color: #fff;
+      padding: 14px 28px; border-radius: 10px;
+      text-decoration: none; font-size: 16px; font-weight: 700;
+      display: inline-flex; align-items: center; gap: 8px;
+      transition: background .2s, transform .15s, box-shadow .2s;
+      box-shadow: 0 4px 14px rgba(37,99,235,0.3);
+    }
+    .btn-primary:hover { background: var(--blue-dark); transform: translateY(-1px); box-shadow: 0 6px 20px rgba(37,99,235,0.4); }
+    .btn-secondary {
+      background: #fff; color: var(--gray-700);
+      padding: 14px 28px; border-radius: 10px;
+      text-decoration: none; font-size: 16px; font-weight: 600;
+      border: 1.5px solid var(--gray-200);
+      display: inline-flex; align-items: center; gap: 8px;
+      transition: border-color .2s, background .2s;
+    }
+    .btn-secondary:hover { border-color: var(--blue); background: var(--blue-light); }
+
+    /* ── DEMO CARD ── */
+    .demo-section {
+      padding: 0 24px 80px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .demo-card {
+      background: #fff;
+      border: 1.5px solid var(--gray-200);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.08);
+    }
+    .demo-topbar {
+      background: var(--gray-50);
+      border-bottom: 1px solid var(--gray-200);
+      padding: 12px 20px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .demo-dot { width: 12px; height: 12px; border-radius: 50%; }
+    .demo-url {
+      flex: 1;
+      background: #fff;
+      border: 1px solid var(--gray-200);
+      border-radius: 6px;
+      padding: 4px 12px;
+      font-size: 12px;
+      color: var(--gray-500);
+      font-family: 'JetBrains Mono', monospace;
+      margin-left: 8px;
+    }
+    .demo-body { padding: 28px; }
+    .demo-step {
+      display: flex; gap: 16px; margin-bottom: 20px;
+      padding: 16px; border-radius: 10px;
+      border: 1px solid var(--gray-100);
+      background: var(--gray-50);
+    }
+    .demo-step-num {
+      width: 28px; height: 28px; flex-shrink: 0;
+      background: var(--blue); color: #fff;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700;
+    }
+    .demo-step-content h4 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .demo-step-content p { font-size: 13px; color: var(--gray-500); }
+    .demo-result {
+      background: var(--green-light);
+      border: 1px solid #bbf7d0;
+      border-radius: 10px;
+      padding: 16px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .demo-result-icon { font-size: 24px; }
+    .demo-result h4 { font-size: 14px; font-weight: 700; color: var(--green); }
+    .demo-result p { font-size: 13px; color: var(--gray-500); margin-top: 2px; }
+
+    /* ── FEATURES ── */
+    .section { padding: 80px 24px; }
+    .section-inner { max-width: 1100px; margin: 0 auto; }
+    .section-label {
+      font-size: 13px; font-weight: 700; color: var(--blue);
+      text-transform: uppercase; letter-spacing: 0.08em;
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: clamp(28px, 4vw, 42px);
+      font-weight: 800; letter-spacing: -1px;
+      margin-bottom: 16px;
+    }
+    .section-sub {
+      font-size: 18px; color: var(--gray-500);
+      max-width: 560px; line-height: 1.7;
+      margin-bottom: 56px;
+    }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+    }
+    .feature-card {
+      background: #fff;
+      border: 1.5px solid var(--gray-200);
+      border-radius: var(--radius);
+      padding: 28px;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .feature-card:hover {
+      border-color: var(--blue-mid);
+      box-shadow: 0 8px 30px rgba(37,99,235,0.08);
+    }
+    .feature-icon {
+      width: 44px; height: 44px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      margin-bottom: 16px;
+    }
+    .feature-card h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+    .feature-card p { font-size: 14px; color: var(--gray-500); line-height: 1.65; }
+
+    /* ── PIPELINE ── */
+    .pipeline-section { background: var(--gray-50); }
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 0;
+      position: relative;
+    }
+    .pipeline-step {
+      padding: 28px 20px;
+      text-align: center;
+      position: relative;
+    }
+    .pipeline-step:not(:last-child)::after {
+      content: '→';
+      position: absolute;
+      right: -10px; top: 50%;
+      transform: translateY(-50%);
+      font-size: 20px; color: var(--gray-400);
+      z-index: 1;
+    }
+    .pipeline-icon {
+      width: 52px; height: 52px;
+      background: #fff;
+      border: 2px solid var(--blue-mid);
+      border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+      margin: 0 auto 14px;
+    }
+    .pipeline-step h4 { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+    .pipeline-step p { font-size: 12px; color: var(--gray-500); }
+
+    /* ── RULES ── */
+    .rules-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .rule-item {
+      border-radius: 10px;
+      padding: 16px 18px;
+      border-left: 4px solid;
+    }
+    .rule-item.pass { background: var(--green-light); border-color: var(--green); }
+    .rule-item.warn { background: var(--amber-light); border-color: var(--amber); }
+    .rule-item.fail { background: var(--red-light); border-color: var(--red); }
+    .rule-item .rule-code { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--gray-400); margin-bottom: 4px; }
+    .rule-item h4 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+    .rule-item p { font-size: 13px; color: var(--gray-500); }
+    .rule-badge {
+      display: inline-block;
+      font-size: 11px; font-weight: 700;
+      padding: 2px 8px; border-radius: 4px;
+      margin-top: 8px;
+    }
+    .badge-pass { background: #dcfce7; color: var(--green); }
+    .badge-warn { background: #fef3c7; color: var(--amber); }
+    .badge-fail { background: #fee2e2; color: var(--red); }
+
+    /* ── TECH STACK ── */
+    .tech-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+    }
+    .tech-card {
+      background: #fff;
+      border: 1.5px solid var(--gray-200);
+      border-radius: 10px;
+      padding: 20px;
+      display: flex; align-items: center; gap: 14px;
+    }
+    .tech-icon { font-size: 28px; }
+    .tech-card h4 { font-size: 14px; font-weight: 700; }
+    .tech-card p { font-size: 12px; color: var(--gray-500); }
+
+    /* ── STATUS ── */
+    .status-section { background: var(--blue); color: #fff; }
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 24px;
+    }
+    .status-card {
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 12px;
+      padding: 24px;
+      text-align: center;
+    }
+    .status-num { font-size: 42px; font-weight: 900; letter-spacing: -2px; }
+    .status-label { font-size: 14px; opacity: 0.8; margin-top: 4px; }
+
+    /* ── ROADMAP ── */
+    .roadmap { display: flex; flex-direction: column; gap: 16px; max-width: 700px; }
+    .roadmap-item {
+      display: flex; gap: 16px; align-items: flex-start;
+      padding: 20px;
+      border-radius: 10px;
+      border: 1.5px solid var(--gray-200);
+      background: #fff;
+    }
+    .roadmap-item.active { border-color: var(--blue); background: var(--blue-light); }
+    .roadmap-item.done { border-color: #bbf7d0; background: var(--green-light); }
+    .roadmap-badge {
+      flex-shrink: 0;
+      padding: 4px 10px; border-radius: 6px;
+      font-size: 11px; font-weight: 700;
+    }
+    .badge-done { background: #dcfce7; color: var(--green); }
+    .badge-active { background: #dbeafe; color: var(--blue); }
+    .badge-soon { background: var(--gray-100); color: var(--gray-500); }
+    .roadmap-item h4 { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+    .roadmap-item p { font-size: 13px; color: var(--gray-500); }
+
+    /* ── CTA ── */
+    .cta-section {
+      background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+      color: #fff;
+      text-align: center;
+      padding: 100px 24px;
+    }
+    .cta-section h2 { font-size: clamp(28px, 4vw, 48px); font-weight: 900; letter-spacing: -1.5px; margin-bottom: 16px; }
+    .cta-section p { font-size: 18px; opacity: 0.8; margin-bottom: 40px; }
+    .btn-white {
+      background: #fff; color: var(--blue);
+      padding: 16px 32px; border-radius: 10px;
+      text-decoration: none; font-size: 16px; font-weight: 700;
+      display: inline-flex; align-items: center; gap: 8px;
+      transition: transform .15s, box-shadow .2s;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    }
+    .btn-white:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.3); }
+
+    /* ── FOOTER ── */
+    footer {
+      background: var(--gray-900); color: var(--gray-400);
+      padding: 40px 24px;
+      text-align: center;
+      font-size: 14px;
+    }
+    footer a { color: var(--gray-400); text-decoration: none; }
+    footer a:hover { color: #fff; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 640px) {
+      .nav-links { display: none; }
+      .pipeline-step:not(:last-child)::after { display: none; }
+      .pipeline { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-inner">
+    <a href="#" class="logo">
+      <div class="logo-icon">AB</div>
+      <span class="logo-text">AI Byggesøknad</span>
+    </a>
+    <ul class="nav-links">
+      <li><a href="#hvordan">Hvordan det fungerer</a></li>
+      <li><a href="#regler">Regelmotor</a></li>
+      <li><a href="#teknologi">Teknologi</a></li>
+      <li><a href="#veikart">Veikart</a></li>
+    </ul>
+    <a href="https://github.com/Larsottojohnsen/ai-byggesoknad" target="_blank" class="nav-cta">
+      GitHub →
+    </a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-badge">
+    <span class="hero-badge-dot"></span>
+    Fase 1 – Forhåndsvurdering · Under utvikling
+  </div>
+  <h1>Fra idé til byggesøknad<br /><span>på minutter</span></h1>
+  <p>AI-plattform som analyserer din eiendom, sjekker reguleringsplaner og faredata, og forteller deg nøyaktig hva du trenger – automatisk.</p>
+  <div class="hero-actions">
+    <a href="https://github.com/Larsottojohnsen/ai-byggesoknad" target="_blank" class="btn-primary">
+      Se kildekode på GitHub
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M7 17L17 7M17 7H7M17 7v10"/></svg>
+    </a>
+    <a href="#hvordan" class="btn-secondary">
+      Hvordan fungerer det?
+    </a>
+  </div>
+</section>
+
+<!-- DEMO CARD -->
+<section class="demo-section">
+  <div class="demo-card">
+    <div class="demo-topbar">
+      <div class="demo-dot" style="background:#ef4444"></div>
+      <div class="demo-dot" style="background:#f59e0b"></div>
+      <div class="demo-dot" style="background:#22c55e"></div>
+      <div class="demo-url">ai-byggesoknad.no/analyze</div>
+    </div>
+    <div class="demo-body">
+      <div class="demo-step">
+        <div class="demo-step-num">1</div>
+        <div class="demo-step-content">
+          <h4>Skriv inn adresse</h4>
+          <p>Storgata 12, 0155 Oslo → Koordinater hentes automatisk fra Kartverket</p>
+        </div>
+      </div>
+      <div class="demo-step">
+        <div class="demo-step-num">2</div>
+        <div class="demo-step-content">
+          <h4>Beskriv tiltaket ditt</h4>
+          <p>"Jeg ønsker å innrede kjelleren til utleieleilighet" → AI klassifiserer: <strong>Bruksendring</strong> (100% sikkerhet)</p>
+        </div>
+      </div>
+      <div class="demo-step">
+        <div class="demo-step-num">3</div>
+        <div class="demo-step-content">
+          <h4>Automatisk analyse</h4>
+          <p>Reguleringsplan, faredata (NVE), eiendomsdata og 12 regelsjekker kjøres parallelt</p>
+        </div>
+      </div>
+      <div class="demo-result">
+        <div class="demo-result-icon">📋</div>
+        <div>
+          <h4>Søknadspliktig · Middels risiko</h4>
+          <p>3 dokumentkrav identifisert · AI-oppsummering og neste steg generert · PDF-rapport klar</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="section" id="hvordan">
+  <div class="section-inner">
+    <div class="section-label">Analysepipeline</div>
+    <h2 class="section-title">Slik fungerer det</h2>
+    <p class="section-sub">Seks automatiserte steg fra adresse til komplett forhåndsvurdering.</p>
+    <div class="pipeline">
+      <div class="pipeline-step">
+        <div class="pipeline-icon">📍</div>
+        <h4>Adresse</h4>
+        <p>Kartverket Adresse-API</p>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipeline-icon">🏠</div>
+        <h4>Eiendom</h4>
+        <p>Matrikkel / WFS</p>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipeline-icon">🗺️</div>
+        <h4>Reguleringsplan</h4>
+        <p>Geonorge OGC API</p>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipeline-icon">⚠️</div>
+        <h4>Faredata</h4>
+        <p>NVE flom &amp; skred</p>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipeline-icon">⚖️</div>
+        <h4>Regelmotor</h4>
+        <p>PBL, TEK17, SAK10</p>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipeline-icon">🤖</div>
+        <h4>AI-oppsummering</h4>
+        <p>GPT-4.1 på norsk</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="section" style="background: var(--gray-50);">
+  <div class="section-inner">
+    <div class="section-label">Funksjoner</div>
+    <h2 class="section-title">Alt du trenger for å vurdere et tiltak</h2>
+    <p class="section-sub">Bygget på offentlige norske geodatakilder og plan- og bygningslovgivning.</p>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#eff6ff">🗺️</div>
+        <h3>Live geodata fra Kartverket</h3>
+        <p>Adressesøk, eiendomsgrenser og matrikkeldata hentes direkte fra Kartverkets åpne API-er i sanntid.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#f0fdf4">📐</div>
+        <h3>Reguleringsplan-analyse</h3>
+        <p>Sjekker arealformål, hensynssoner og byggegrenser mot Geonorges nasjonale planregister.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#fef2f2">🌊</div>
+        <h3>Naturfare fra NVE</h3>
+        <p>Flom- og skredfaredata fra NVE Atlas identifiserer risiko og utløser TEK17-krav automatisk.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#fffbeb">⚖️</div>
+        <h3>Deklarativ regelmotor</h3>
+        <p>12 regler basert på PBL, TEK17 og SAK10 evalueres med full lovhenvisning og forklaring.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#f5f3ff">🤖</div>
+        <h3>AI-klassifisering og oppsummering</h3>
+        <p>GPT-4.1-mini klassifiserer tiltakstype fra fritekst og genererer norsk oppsummering med neste steg.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#fff7ed">📄</div>
+        <h3>PDF-rapport</h3>
+        <p>Komplett forhåndsvurderingsrapport med alle funn, regelresultater og dokumentkrav – klar til nedlasting.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- RULES -->
+<section class="section" id="regler">
+  <div class="section-inner">
+    <div class="section-label">Regelmotor</div>
+    <h2 class="section-title">Eksempel på regelresultater</h2>
+    <p class="section-sub">Slik ser en analyse ut for "bruksendring til utleieleilighet" i regulert boligområde.</p>
+    <div class="rules-grid">
+      <div class="rule-item fail">
+        <div class="rule-code">SØKP-001</div>
+        <h4>Søknadsplikt: Bruksendring</h4>
+        <p>Bruksendring er søknadspliktig etter PBL § 20-1 bokstav d.</p>
+        <span class="rule-badge badge-fail">Søknad kreves</span>
+      </div>
+      <div class="rule-item warn">
+        <div class="rule-code">DOK-001</div>
+        <h4>Dokumentkrav: Situasjonsplan</h4>
+        <p>Søknadspliktige tiltak krever situasjonsplan etter SAK10 § 5-4.</p>
+        <span class="rule-badge badge-warn">Dokument kreves</span>
+      </div>
+      <div class="rule-item warn">
+        <div class="rule-code">DOK-003</div>
+        <h4>Dokumentkrav: Nabovarsel</h4>
+        <p>Naboer og gjenboere varsles etter PBL § 21-3.</p>
+        <span class="rule-badge badge-warn">Dokument kreves</span>
+      </div>
+      <div class="rule-item pass">
+        <div class="rule-code">PLAN-002</div>
+        <h4>LNF-område: Ikke aktuelt</h4>
+        <p>Eiendommen ligger ikke i LNF-område – tiltaket er ikke blokkert av dette.</p>
+        <span class="rule-badge badge-pass">OK</span>
+      </div>
+      <div class="rule-item pass">
+        <div class="rule-code">FARE-001</div>
+        <h4>Flomsone: Ingen fare</h4>
+        <p>NVE-data viser ingen flomsone for denne eiendommen.</p>
+        <span class="rule-badge badge-pass">OK</span>
+      </div>
+      <div class="rule-item warn">
+        <div class="rule-code">DISP-001</div>
+        <h4>Dispensasjonsindikator</h4>
+        <p>Reguleringsplan kan gi planstrid – dispensasjon etter PBL § 19-1 kan kreves.</p>
+        <span class="rule-badge badge-warn">Vurder</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STATUS NUMBERS -->
+<section class="section status-section">
+  <div class="section-inner">
+    <div class="status-grid">
+      <div class="status-card">
+        <div class="status-num">12</div>
+        <div class="status-label">Regler implementert</div>
+      </div>
+      <div class="status-card">
+        <div class="status-num">9</div>
+        <div class="status-label">API-endepunkter</div>
+      </div>
+      <div class="status-card">
+        <div class="status-num">4</div>
+        <div class="status-label">Datakilder integrert</div>
+      </div>
+      <div class="status-card">
+        <div class="status-num">56</div>
+        <div class="status-label">Filer i kodebasen</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TECH STACK -->
+<section class="section" id="teknologi">
+  <div class="section-inner">
+    <div class="section-label">Teknologi</div>
+    <h2 class="section-title">Bygget med moderne open-source stack</h2>
+    <p class="section-sub">Alle komponenter er åpen kildekode og kan kjøres lokalt.</p>
+    <div class="tech-grid">
+      <div class="tech-card">
+        <div class="tech-icon">⚡</div>
+        <div>
+          <h4>Next.js 14</h4>
+          <p>TypeScript + Tailwind CSS</p>
+        </div>
+      </div>
+      <div class="tech-card">
+        <div class="tech-icon">🗺️</div>
+        <div>
+          <h4>MapLibre GL JS</h4>
+          <p>Åpen kildekode kart</p>
+        </div>
+      </div>
+      <div class="tech-card">
+        <div class="tech-icon">🐍</div>
+        <div>
+          <h4>FastAPI</h4>
+          <p>Python 3.11 + asyncpg</p>
+        </div>
+      </div>
+      <div class="tech-card">
+        <div class="tech-icon">🐘</div>
+        <div>
+          <h4>PostgreSQL + PostGIS</h4>
+          <p>Geodata-database</p>
+        </div>
+      </div>
+      <div class="tech-card">
+        <div class="tech-icon">🤖</div>
+        <div>
+          <h4>OpenAI GPT-4.1</h4>
+          <p>Klassifisering + oppsummering</p>
+        </div>
+      </div>
+      <div class="tech-card">
+        <div class="tech-icon">🐳</div>
+        <div>
+          <h4>Docker Compose</h4>
+          <p>Lokal utvikling</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ROADMAP -->
+<section class="section" style="background: var(--gray-50);" id="veikart">
+  <div class="section-inner">
+    <div class="section-label">Veikart</div>
+    <h2 class="section-title">Hva som er bygget og hva som kommer</h2>
+    <p class="section-sub" style="margin-bottom: 36px;">Tre faser fra forhåndsvurdering til komplett søknadsinnlevering.</p>
+    <div class="roadmap">
+      <div class="roadmap-item done">
+        <div>
+          <span class="roadmap-badge badge-done">✅ Fase 1 – Ferdig</span>
+          <h4 style="margin-top: 8px;">Forhåndsvurdering</h4>
+          <p>Adressesøk, eiendomsdata, reguleringsplan, faredata, regelmotor (12 regler), AI-klassifisering, oppsummering og PDF-rapport.</p>
+        </div>
+      </div>
+      <div class="roadmap-item active">
+        <div>
+          <span class="roadmap-badge badge-active">🔄 Fase 2 – Pågår</span>
+          <h4 style="margin-top: 8px;">Søknadsforberedelse</h4>
+          <p>PostgreSQL-integrasjon, dokumentmodul (nabovarsel, tiltaksbeskrivelse), kartlag-overlay, opplasting av tegninger og AI-dokumentanalyse.</p>
+        </div>
+      </div>
+      <div class="roadmap-item">
+        <div>
+          <span class="roadmap-badge badge-soon">⬜ Fase 3 – Planlagt</span>
+          <h4 style="margin-top: 8px;">Innsending</h4>
+          <p>Altinn-integrasjon, eByggesak, kommunespesifikke regler, brukerkontoer og prosjekthistorikk.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+  <div style="max-width: 600px; margin: 0 auto;">
+    <h2>Klar til å prøve?</h2>
+    <p>Klon repoet, legg inn din OpenAI API-nøkkel og kjør én kommando.</p>
+    <div style="background: rgba(0,0,0,0.3); border-radius: 10px; padding: 16px 20px; margin-bottom: 36px; font-family: 'JetBrains Mono', monospace; font-size: 14px; text-align: left; color: #93c5fd;">
+      <span style="color: #6b7280;">$</span> git clone github.com/Larsottojohnsen/ai-byggesoknad<br/>
+      <span style="color: #6b7280;">$</span> cp .env.example .env &amp;&amp; ./scripts/dev.sh
+    </div>
+    <a href="https://github.com/Larsottojohnsen/ai-byggesoknad" target="_blank" class="btn-white">
+      Se kildekode på GitHub
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+    </a>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <p>
+    AI Byggesøknad er et åpen kildekode-prosjekt under aktiv utvikling.
+    Ikke juridisk rådgivning – kontakt alltid kommunen for endelig avklaring.
+  </p>
+  <p style="margin-top: 8px;">
+    <a href="https://github.com/Larsottojohnsen/ai-byggesoknad" target="_blank">GitHub</a>
+    &nbsp;·&nbsp;
+    Bygget med ❤️ for norske huseiere
+  </p>
+</footer>
+
+</body>
+</html>

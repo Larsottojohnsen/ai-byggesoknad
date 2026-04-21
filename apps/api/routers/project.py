@@ -32,7 +32,7 @@ async def run_analysis(project_id: str):
 @router.get("/{project_id}")
 async def get_project_details(project_id: str):
     """Get project details."""
-    project = get_project(project_id)
+    project = await get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Prosjekt ikke funnet")
     return ApiResponse(data=project)
@@ -41,7 +41,7 @@ async def get_project_details(project_id: str):
 @router.get("/{project_id}/results")
 async def get_project_results(project_id: str):
     """Get analysis results for a project."""
-    result = get_analysis_result(project_id)
+    result = await get_analysis_result(project_id)
     if not result:
         raise HTTPException(status_code=404, detail="Analyseresultat ikke funnet")
     return ApiResponse(data=result)

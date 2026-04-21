@@ -7,9 +7,8 @@ Analysis Service – orchestrates the full analysis pipeline:
 5. user input → measure classification (AI)
 6. rule engine → evaluation
 7. AI → summary
-8. save project
+8. persist results (PostgreSQL with in-memory fallback)
 """
-import uuid
 from datetime import datetime, timezone
 import structlog
 from typing import Optional
@@ -23,38 +22,38 @@ from providers.plan_provider import get_plan_provider
 from providers.hazard_provider import get_hazard_provider
 from rules.engine import get_rule_engine, RuleContext
 from services.ai_orchestrator import get_ai_orchestrator
+from services.project_repository import ProjectRepository
 
 logger = structlog.get_logger()
 
-# In-memory store for v1 (replace with DB in production)
-_projects: dict = {}
-_results: dict = {}
+# Singleton repository (in-memory fallback, no DB session needed for dev)
+_repo = ProjectRepository()
 
 
 async def create_project(req: CreateProjectRequest) -> Project:
     """Create a new project from user input."""
-    project_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
-
-    project = Project(
-        id=project_id,
-        addressText=req.addressText,
-        lat=req.lat,
-        lng=req.lng,
-        intentText=req.intentText,
+    project_data = await _repo.create({
+        "addressText": req.addressText,
+        "lat": req.lat,
+        "lng": req.lng,
+        "intentText": req.intentText,
+    })
+    logger.info("project_created", project_id=project_data["id"], address=req.addressText)
+    return Project(
+        id=project_data["id"],
+        addressText=project_data["addressText"],
+        lat=project_data["lat"],
+        lng=project_data["lng"],
+        intentText=project_data["intentText"],
         status=ProjectStatus.draft,
-        createdAt=now,
-        updatedAt=now,
+        createdAt=project_data["createdAt"],
+        updatedAt=project_data["updatedAt"],
     )
-
-    _projects[project_id] = project.model_dump()
-    logger.info("project_created", project_id=project_id, address=req.addressText)
-    return project
 
 
 async def analyze_project(project_id: str) -> AnalysisResult:
     """Run the full analysis pipeline for a project."""
-    project_data = _projects.get(project_id)
+    project_data = await _repo.get(project_id)
     if not project_data:
         raise ValueError(f"Project {project_id} not found")
 
@@ -63,9 +62,7 @@ async def analyze_project(project_id: str) -> AnalysisResult:
     intent_text = project_data["intentText"]
 
     logger.info("analysis_started", project_id=project_id, lat=lat, lng=lng)
-
-    # Update status
-    _projects[project_id]["status"] = ProjectStatus.analyzing.value
+    await _repo.update(project_id, {"status": ProjectStatus.analyzing.value})
 
     # 1. AI: Classify measure type
     orchestrator = get_ai_orchestrator()
@@ -149,29 +146,64 @@ async def analyze_project(project_id: str) -> AnalysisResult:
         analyzedAt=analyzed_at,
     )
 
-    # Update project status
-    _projects[project_id]["status"] = ProjectStatus.analyzed.value
-    _projects[project_id]["riskLevel"] = risk_level.value
-    _projects[project_id]["applicationRequired"] = application_required
-    _projects[project_id]["measureType"] = classification.measureType.value
-    _projects[project_id]["updatedAt"] = analyzed_at
+    # 9. Persist results
+    result_dict = result.model_dump()
+    # Convert enums to values for storage
+    result_dict["riskLevel"] = risk_level.value
+    result_dict["classification"]["measureType"] = classification.measureType.value
+    if result_dict.get("planLayer") and result_dict["planLayer"].get("planStatus"):
+        result_dict["planLayer"]["planStatus"] = plan_layer.planStatus.value if plan_layer else "ukjent"
+    if result_dict.get("hazard"):
+        result_dict["hazard"]["flomFare"] = hazard.flomFare.value
+        result_dict["hazard"]["skredFare"] = hazard.skredFare.value
+    result_dict["ruleResults"] = [
+        {**rr.model_dump(), "status": rr.status.value} for rr in rule_results
+    ]
 
-    # Cache result
-    _results[project_id] = result.model_dump()
-
+    await _repo.save_analysis_results(project_id, result_dict)
     logger.info("analysis_complete", project_id=project_id, risk=risk_level.value)
     return result
 
 
-def get_project(project_id: str) -> Optional[Project]:
-    data = _projects.get(project_id)
+async def get_project(project_id: str) -> Optional[Project]:
+    data = await _repo.get(project_id)
     if not data:
         return None
-    return Project(**data)
+    return Project(
+        id=data["id"],
+        addressText=data["addressText"],
+        lat=data["lat"],
+        lng=data["lng"],
+        intentText=data["intentText"],
+        measureType=data.get("measureType"),
+        status=ProjectStatus(data.get("status", "draft")),
+        riskLevel=data.get("riskLevel"),
+        applicationRequired=data.get("applicationRequired"),
+        createdAt=data.get("createdAt"),
+        updatedAt=data.get("updatedAt"),
+    )
 
 
-def get_analysis_result(project_id: str) -> Optional[AnalysisResult]:
-    data = _results.get(project_id)
-    if not data:
+async def get_analysis_result(project_id: str) -> Optional[AnalysisResult]:
+    data = await _repo.get(project_id)
+    if not data or data.get("status") not in ("analyzed", "complete"):
         return None
-    return AnalysisResult(**data)
+    try:
+        return AnalysisResult(
+            projectId=data["id"],
+            property=data.get("property"),
+            planLayer=data.get("planLayer"),
+            hazard=data.get("hazard"),
+            classification=data.get("classification"),
+            ruleResults=data.get("ruleResults", []),
+            riskLevel=data.get("riskLevel", "ukjent"),
+            applicationRequired=data.get("applicationRequired"),
+            aiSummary=data.get("aiSummary"),
+            nextSteps=data.get("nextSteps", []),
+            documentRequirements=data.get("documentRequirements", []),
+            warnings=data.get("warnings", []),
+            analyzedAt=data.get("analyzedAt"),
+        )
+    except Exception as e:
+        logger.warning("result_deserialize_failed", error=str(e))
+        return None
