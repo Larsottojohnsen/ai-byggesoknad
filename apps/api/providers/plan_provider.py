@@ -1,6 +1,6 @@
 """
-PlanProvider – adapter for Geonorge OGC API Features (reguleringsplaner)
-Uses Geonorge's national plan registry.
+PlanProvider – adapter for Kartverket arealplaner REST API
+Uses arealplaner.kartverket.no/api/arealplan/v1 for reguleringsplan lookup.
 """
 import httpx
 import structlog
@@ -10,10 +10,8 @@ from models.schemas import PlanLayerResult, PlanStatus
 
 logger = structlog.get_logger()
 
-# Geonorge OGC API for reguleringsplaner
-PLAN_API_BASE = "https://ogcapitest.kartverket.no/rest/services/reguleringsplanforslag/v1"
-# Fallback WMS for kommuneplan
-KOMMUNEPLAN_WMS = "https://wms.geonorge.no/skwms1/wms.arealressurskart2"
+# Kartverket arealplaner REST API (confirmed working)
+AREALPLANER_BASE = "https://arealplaner.kartverket.no/api/arealplan/v1"
 CACHE_TTL = 21600  # 6 hours
 
 
@@ -21,112 +19,135 @@ class PlanProvider:
     def __init__(self):
         self.client = httpx.AsyncClient(timeout=15.0)
 
-    async def lookup(self, lat: float, lng: float) -> Optional[PlanLayerResult]:
+    async def lookup(self, lat: float, lng: float, kommunenr: str = None) -> Optional[PlanLayerResult]:
         """Look up plan layers for given coordinates."""
         cache_key = f"plan:{lat:.4f}:{lng:.4f}"
         cached = await cache_get(cache_key)
         if cached:
             return PlanLayerResult(**cached)
 
-        result = await self._try_ogc_api(lat, lng)
-        if not result:
-            result = await self._try_wfs_fallback(lat, lng)
+        result = None
+
+        # Try arealplaner.kartverket.no if we have kommunenr
+        if kommunenr and kommunenr != "0000":
+            result = await self._try_arealplaner_api(lat, lng, kommunenr)
+
         if not result:
             result = self._create_unknown_plan()
 
         await cache_set(cache_key, result.model_dump(), CACHE_TTL)
         return result
 
-    async def _try_ogc_api(self, lat: float, lng: float) -> Optional[PlanLayerResult]:
-        """Try Geonorge OGC API Features."""
+    async def _try_arealplaner_api(self, lat: float, lng: float, kommunenr: str) -> Optional[PlanLayerResult]:
+        """Try Kartverket arealplaner REST API."""
         try:
-            # Use a bounding box around the point
-            delta = 0.001  # ~100m
-            bbox = f"{lng-delta},{lat-delta},{lng+delta},{lat+delta}"
-
             response = await self.client.get(
-                f"{PLAN_API_BASE}/collections/reguleringsplanforslag/items",
+                f"{AREALPLANER_BASE}/planomrader",
                 params={
-                    "bbox": bbox,
-                    "bbox-crs": "http://www.opengis.net/def/crs/OGC/1.3/CRS84",
-                    "f": "json",
-                    "limit": 5,
+                    "kommunenummer": kommunenr,
+                    "koordinatSytem": "4326",
+                    "nord": lat,
+                    "ost": lng,
                 },
-                timeout=10.0,
+                timeout=12.0,
             )
 
             if response.status_code == 200:
                 data = response.json()
-                features = data.get("features", [])
-                if features:
-                    return self._parse_plan_feature(features[0])
+                # Response can be a list or have a 'planomrader' key
+                plans = data if isinstance(data, list) else data.get("planomrader", data.get("features", []))
+                if plans and len(plans) > 0:
+                    # Pick the most specific plan (reguleringsplan over kommuneplan)
+                    best_plan = self._pick_best_plan(plans)
+                    if best_plan:
+                        result = self._parse_arealplaner_plan(best_plan)
+                        logger.info("plan_found", kommunenr=kommunenr, plan_id=result.planId)
+                        return result
+                else:
+                    logger.info("plan_no_results", kommunenr=kommunenr, lat=lat, lng=lng)
 
         except Exception as e:
-            logger.warning("plan_ogc_api_error", lat=lat, lng=lng, error=str(e))
+            logger.warning("plan_arealplaner_error", lat=lat, lng=lng, kommunenr=kommunenr, error=str(e))
 
         return None
 
-    async def _try_wfs_fallback(self, lat: float, lng: float) -> Optional[PlanLayerResult]:
-        """Fallback: try Kartverket WFS for plan data."""
-        try:
-            response = await self.client.get(
-                "https://wfs.geonorge.no/skwms1/wfs.reguleringsplaner",
-                params={
-                    "SERVICE": "WFS",
-                    "VERSION": "2.0.0",
-                    "REQUEST": "GetFeature",
-                    "TYPENAMES": "app:Reguleringsplan",
-                    "CQL_FILTER": f"INTERSECTS(omrade, POINT({lng} {lat}))",
-                    "SRSNAME": "EPSG:4326",
-                    "outputFormat": "application/json",
-                    "count": 3,
-                },
-                timeout=10.0,
-            )
+    def _pick_best_plan(self, plans: list) -> Optional[Dict]:
+        """Pick the most specific plan from a list."""
+        if not plans:
+            return None
 
-            if response.status_code == 200:
-                data = response.json()
-                features = data.get("features", [])
-                if features:
-                    return self._parse_plan_feature(features[0])
+        # Prefer reguleringsplan over kommuneplan
+        for plan in plans:
+            plantype = str(plan.get("plantype", plan.get("planType", ""))).lower()
+            if "regulering" in plantype or "detaljregulering" in plantype:
+                return plan
 
-        except Exception as e:
-            logger.warning("plan_wfs_fallback_error", lat=lat, lng=lng, error=str(e))
+        # Fall back to first plan
+        return plans[0]
 
-        return None
+    def _parse_arealplaner_plan(self, plan: Dict[str, Any]) -> PlanLayerResult:
+        """Parse a Kartverket arealplaner plan object into PlanLayerResult."""
+        # Determine plan status
+        plantype = str(plan.get("plantype", plan.get("planType", ""))).lower()
+        planstatus_raw = str(plan.get("planstatus", plan.get("planStatus", ""))).lower()
 
-    def _parse_plan_feature(self, feature: Dict[str, Any]) -> PlanLayerResult:
-        props = feature.get("properties", {})
-        geom = feature.get("geometry")
-
-        # Map Norwegian plan types to our enum
-        plan_type = props.get("plantype", "").lower()
-        if "reguleringsplan" in plan_type or "detaljregulering" in plan_type:
+        if "regulering" in plantype or "detaljregulering" in plantype:
             status = PlanStatus.regulert
-        elif "kommuneplan" in plan_type or "kommunedelplan" in plan_type:
+        elif "kommuneplan" in plantype or "kommunedelplan" in plantype:
             status = PlanStatus.kommuneplan
         else:
             status = PlanStatus.ukjent
 
-        # Try to extract arealformål
-        areal_formal = props.get("arealformål", props.get("formål", "ukjent"))
+        # Extract arealformål
+        areal_formal = (
+            plan.get("arealformål") or
+            plan.get("arealFormål") or
+            plan.get("formål") or
+            plan.get("planformål") or
+            "ukjent"
+        )
         if isinstance(areal_formal, str):
             areal_formal = areal_formal.lower()
 
+        # Extract hensynssoner
         hensynssoner = []
-        if props.get("hensynssone"):
-            hensynssoner = [props["hensynssone"]] if isinstance(props["hensynssone"], str) else props["hensynssone"]
+        hs = plan.get("hensynssoner", plan.get("hensynssone", []))
+        if isinstance(hs, str):
+            hensynssoner = [hs]
+        elif isinstance(hs, list):
+            hensynssoner = hs
+
+        # Plan ID and name
+        plan_id = (
+            plan.get("planidentifikasjon") or
+            plan.get("planId") or
+            plan.get("planid") or
+            plan.get("id")
+        )
+        plan_name = (
+            plan.get("plannavn") or
+            plan.get("planNavn") or
+            plan.get("name") or
+            plan.get("planname")
+        )
+
+        # Utnyttelsesgrad
+        utnyttelsesgrad = (
+            plan.get("utnyttelsesgrad") or
+            plan.get("bya") or
+            plan.get("BYA")
+        )
 
         return PlanLayerResult(
-            planId=props.get("planidentifikasjon") or props.get("planid"),
-            planName=props.get("plannavn") or props.get("planname"),
+            planId=str(plan_id) if plan_id else None,
+            planName=plan_name,
             planStatus=status,
             arealFormål=areal_formal or "ukjent",
             hensynssoner=hensynssoner,
-            byggegrense=props.get("byggegrense"),
-            utnyttelsesgrad=props.get("utnyttelsesgrad") or props.get("bya"),
-            planUrl=props.get("planUrl"),
-            geometry={"type": "Feature", "geometry": geom, "properties": {}} if geom else None,
+            byggegrense=plan.get("byggegrense"),
+            utnyttelsesgrad=float(utnyttelsesgrad) if utnyttelsesgrad else None,
+            planUrl=plan.get("planUrl") or plan.get("planurl"),
+            geometry=None,
         )
 
     def _create_unknown_plan(self) -> PlanLayerResult:

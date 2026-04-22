@@ -107,7 +107,7 @@ async def analyze_project(project_id: str) -> AnalysisResult:
     # 4. Plan layer lookup
     _emit(project_id, "plan", "Henter reguleringsplan fra Geonorge...", 50)
     plan_provider = get_plan_provider()
-    plan_layer = await plan_provider.lookup(lat, lng)
+    plan_layer = await plan_provider.lookup(lat, lng, kommunenr=kommunenr)
     logger.info("plan_done", plan_status=plan_layer.planStatus.value if plan_layer else None)
 
     # 5. Hazard lookup
@@ -243,7 +243,7 @@ async def get_project(project_id: str) -> Optional[Project]:
 
 async def get_analysis_result(project_id: str) -> Optional[AnalysisResult]:
     data = await _repo.get(project_id)
-    if not data or data.get("status") not in ("analyzed", "complete"):
+    if not data or data.get("status") not in ("analyzed", "complete", "analyzing"):
         return None
     try:
         return AnalysisResult(

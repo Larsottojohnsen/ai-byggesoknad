@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional
 import structlog
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from services.analysis_service import get_analysis_result
+from services.analysis_service import get_analysis_result, get_project
 from models.schemas import RuleStatus
 
 logger = structlog.get_logger()
@@ -29,7 +29,8 @@ jinja_env = Environment(
 
 async def generate_report(project_id: str, doc_type: str = "forhåndsvurdering") -> Dict[str, Any]:
     """Generate a PDF report for a project."""
-    result = get_analysis_result(project_id)
+    # Correctly await the async function
+    result = await get_analysis_result(project_id)
     if not result:
         raise ValueError(f"Analyseresultat for prosjekt {project_id} ikke funnet")
 
@@ -66,18 +67,19 @@ async def generate_report(project_id: str, doc_type: str = "forhåndsvurdering")
         dt = datetime.fromisoformat(result.analyzedAt.replace("Z", "+00:00"))
         analyzed_at_str = dt.strftime("%d.%m.%Y kl. %H:%M")
     except Exception:
-        analyzed_at_str = result.analyzedAt
+        analyzed_at_str = result.analyzedAt or ""
 
-    # Get project data
-    from services.analysis_service import _projects
-    project_data = _projects.get(project_id, {})
+    # Get project data using the repository (correctly awaited)
+    project = await get_project(project_id)
+    address_text = project.addressText if project else "Ukjent adresse"
+    intent_text = project.intentText if project else ""
 
     context = {
         "project_id": project_id,
-        "address_text": project_data.get("addressText", "Ukjent adresse"),
-        "intent_text": project_data.get("intentText", ""),
+        "address_text": address_text,
+        "intent_text": intent_text,
         "analyzed_at": analyzed_at_str,
-        "risk_level": result.riskLevel.value,
+        "risk_level": result.riskLevel.value if hasattr(result.riskLevel, "value") else str(result.riskLevel),
         "application_status": application_status,
         "measure_type": measure_type,
         "pass_count": pass_count,
