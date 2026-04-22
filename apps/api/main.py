@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from core.config import settings
-from routers import address, project, classify, documents, municipality
+from routers import address, project, classify, documents, municipality, dispensasjoner
 
 # Configure structured logging
 structlog.configure(
@@ -120,6 +120,7 @@ app.include_router(project.router)
 app.include_router(classify.router)
 app.include_router(documents.router)
 app.include_router(municipality.router)
+app.include_router(dispensasjoner.router)
 
 
 # ── SSE: Analysis progress stream ─────────────────────────────────────────────
