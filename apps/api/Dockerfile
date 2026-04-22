@@ -1,11 +1,11 @@
 FROM python:3.11-slim
 
-# Install system dependencies for WeasyPrint and PostGIS client
+# Install system dependencies for WeasyPrint (Debian Bookworm compatible)
 RUN apt-get update && apt-get install -y \
     libpango-1.0-0 \
     libpangoft2-1.0-0 \
     libpangocairo-1.0-0 \
-    libgdk-pixbuf2.0-0 \
+    libgdk-pixbuf-2.0-0 \
     libffi-dev \
     libcairo2 \
     libglib2.0-0 \
@@ -33,5 +33,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Start server
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# Start server - use $PORT from Railway environment
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
