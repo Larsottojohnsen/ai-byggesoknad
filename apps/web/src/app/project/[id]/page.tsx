@@ -73,6 +73,9 @@ export default function ProjectPage() {
   const blockingRules = result.ruleResults.filter((r) => r.blocking && r.status === 'fail')
   const warnRules = result.ruleResults.filter((r) => r.status === 'warn')
   const passRules = result.ruleResults.filter((r) => r.status === 'pass')
+  const needsDispensation = result.ruleResults.some(
+    (r) => r.ruleCode?.startsWith('DISP') || r.ruleGroup === 'dispensasjon'
+  )
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -398,6 +401,7 @@ export default function ProjectPage() {
               <DocumentPanel
                 projectId={id}
                 applicationRequired={result.applicationRequired}
+                needsDispensation={needsDispensation}
               />
             </div>
 
