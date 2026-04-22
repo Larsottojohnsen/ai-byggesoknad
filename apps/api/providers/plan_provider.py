@@ -1,187 +1,184 @@
 """
-PlanProvider – adapter for Norwegian arealplan/reguleringsplan data
-Uses Geonorge WFS service for reguleringsplan lookup by coordinates.
-Falls back to kommuneplan if no reguleringsplan found.
+PlanProvider – fetches reguleringsplan data for a given coordinate.
+
+Uses DiBK NAP WMS GetFeatureInfo (open, no auth required):
+  https://nap.ft.dibk.no/services/wms/reguleringsplaner
+
+Layer structure (vertikalnivå 2 = ground level):
+  - rpomrade_vn2: Reguleringsplanområde (plan boundary)
+  - arealformal_vn2: Arealformål (land use purpose)
+  - hensynssoner_vn2: Hensynssoner (safety zones)
+
+Falls back to kommuneplan/arealplaner.no link if WMS returns no data.
+
+NOTE: Reguleringsplan data in Norway requires Norge Digitalt agreement for
+vector downloads (OGC API Features). The WMS service is open but may return
+empty results for areas not covered by a reguleringsplan.
 """
+import math
 import httpx
 import structlog
-import xml.etree.ElementTree as ET
-from typing import Optional, List, Dict, Any
+from typing import Optional
 from core.cache import cache_get, cache_set
-from models.schemas import PlanLayerResult, PlanStatus
+from models.schemas import PlanLayer, PlanStatus
 
 logger = structlog.get_logger()
 
-# Geonorge WFS for reguleringsplaner (open, no auth required)
-GEONORGE_WFS_BASE = "https://wfs.geonorge.no/skwms1/wfs.reguleringsplaner"
-CACHE_TTL = 21600  # 6 hours
+WMS_BASE = "https://nap.ft.dibk.no/services/wms/reguleringsplaner"
+CACHE_TTL = 3600  # 1 hour
+
+
+def _build_bbox(lat: float, lng: float, delta: float = 0.005):
+    """Build a small bounding box around a point (in CRS:84 = lon,lat order)."""
+    return f"{lng - delta},{lat - delta},{lng + delta},{lat + delta}"
+
+
+def _pixel_for_point(lat: float, lng: float, bbox_str: str, width: int = 101, height: int = 101):
+    """Compute the pixel (I, J) for a lat/lng within a given BBOX."""
+    parts = [float(x) for x in bbox_str.split(",")]
+    min_lng, min_lat, max_lng, max_lat = parts
+    i = int((lng - min_lng) / (max_lng - min_lng) * width)
+    j = int((max_lat - lat) / (max_lat - min_lat) * height)
+    # Clamp to image bounds
+    i = max(0, min(width - 1, i))
+    j = max(0, min(height - 1, j))
+    return i, j
+
+
+async def _wms_get_feature_info(
+    lat: float, lng: float, layer: str, delta: float = 0.005
+) -> Optional[dict]:
+    """Call WMS GetFeatureInfo and return first feature properties, or None."""
+    bbox = _build_bbox(lat, lng, delta)
+    i, j = _pixel_for_point(lat, lng, bbox)
+
+    params = {
+        "SERVICE": "WMS",
+        "VERSION": "1.3.0",
+        "REQUEST": "GetFeatureInfo",
+        "LAYERS": layer,
+        "QUERY_LAYERS": layer,
+        "INFO_FORMAT": "application/json",
+        "I": i,
+        "J": j,
+        "WIDTH": 101,
+        "HEIGHT": 101,
+        "CRS": "CRS:84",
+        "BBOX": bbox,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            resp = await client.get(WMS_BASE, params=params)
+            if resp.status_code == 200:
+                data = resp.json()
+                features = data.get("features", [])
+                if features:
+                    return features[0].get("properties", {})
+    except Exception as e:
+        logger.warning("wms_get_feature_info_error", layer=layer, error=str(e))
+
+    return None
 
 
 class PlanProvider:
-    def __init__(self):
-        self.client = httpx.AsyncClient(timeout=20.0)
-
-    async def lookup(self, lat: float, lng: float, kommunenr: str = None) -> Optional[PlanLayerResult]:
-        """Look up plan layers for given coordinates."""
+    async def lookup(
+        self, lat: float, lng: float, kommunenr: Optional[str] = None
+    ) -> Optional[PlanLayer]:
+        """Look up reguleringsplan for given coordinates using DiBK NAP WMS."""
         cache_key = f"plan:{lat:.4f}:{lng:.4f}"
         cached = await cache_get(cache_key)
         if cached:
-            return PlanLayerResult(**cached)
+            return PlanLayer(**cached)
 
-        result = None
+        logger.info("plan_lookup_start", lat=lat, lng=lng, kommunenr=kommunenr)
 
-        # Try Geonorge WFS for reguleringsplan
-        result = await self._try_geonorge_wfs(lat, lng)
+        # Build arealplaner.no link for this municipality
+        plan_register_url = None
+        if kommunenr:
+            plan_register_url = f"https://arealplaner.no/{kommunenr}/arealplaner"
 
-        if not result:
-            result = self._create_unknown_plan()
+        # Try WMS GetFeatureInfo for reguleringsplanområde (ground level, vn2)
+        # Try multiple deltas to increase chance of hitting a plan
+        props = None
+        for delta in [0.003, 0.008, 0.015]:
+            props = await _wms_get_feature_info(lat, lng, "rpomrade_vn2", delta=delta)
+            if props:
+                logger.info("plan_found_rpomrade", delta=delta, props=props)
+                break
 
-        await cache_set(cache_key, result.model_dump(), CACHE_TTL)
-        return result
+        if props:
+            plan_id = props.get("planidentifikasjon") or props.get("planid") or props.get("lokal_id")
+            plan_name = props.get("plannavn") or props.get("planNavn") or props.get("name")
+            plan_status_raw = props.get("planstatus") or props.get("planStatus") or "gjeldende"
+            areal_formal = props.get("arealformål") or props.get("arealFormål") or props.get("formål")
 
-    async def _try_geonorge_wfs(self, lat: float, lng: float) -> Optional[PlanLayerResult]:
-        """Try Geonorge WFS for reguleringsplan data."""
-        # Small bounding box around the point (~200m)
-        delta = 0.002
-        bbox = f"{lng - delta},{lat - delta},{lng + delta},{lat + delta},EPSG:4326"
+            # Map planstatus to our enum
+            plan_status = _map_plan_status(plan_status_raw)
 
-        try:
-            response = await self.client.get(
-                GEONORGE_WFS_BASE,
-                params={
-                    "SERVICE": "WFS",
-                    "VERSION": "2.0.0",
-                    "REQUEST": "GetFeature",
-                    "TYPENAMES": "app:Reguleringsplanomrade",
-                    "COUNT": "5",
-                    "BBOX": bbox,
-                    "OUTPUTFORMAT": "application/json",
-                },
-                timeout=15.0,
+            result = PlanLayer(
+                planId=str(plan_id) if plan_id else None,
+                planName=plan_name,
+                planStatus=plan_status,
+                arealFormål=areal_formal or "ukjent",
+                hensynssoner=[],
+                byggegrense=None,
+                utnyttelsesgrad=None,
+                planUrl=plan_register_url,
             )
+            await cache_set(cache_key, result.model_dump(), CACHE_TTL)
+            return result
 
-            if response.status_code == 200:
-                content_type = response.headers.get("content-type", "")
-                if "json" in content_type:
-                    data = response.json()
-                    features = data.get("features", [])
-                    if features:
-                        best = self._pick_best_feature(features)
-                        if best:
-                            result = self._parse_geojson_feature(best)
-                            logger.info("plan_found_wfs", lat=lat, lng=lng, plan_id=result.planId)
-                            return result
-                    else:
-                        logger.info("plan_no_results_wfs", lat=lat, lng=lng)
-                elif "xml" in content_type or "gml" in content_type:
-                    # Try to parse GML/XML response
-                    result = self._parse_gml_response(response.text, lat, lng)
-                    if result:
-                        return result
-            else:
-                logger.warning("plan_wfs_http_error", status=response.status_code, lat=lat, lng=lng)
+        # Try arealformal layer as fallback
+        props_formal = await _wms_get_feature_info(lat, lng, "arealformal_vn2", delta=0.01)
+        if props_formal:
+            areal_formal = (
+                props_formal.get("arealformål")
+                or props_formal.get("arealFormål")
+                or props_formal.get("formål")
+                or props_formal.get("type")
+            )
+            result = PlanLayer(
+                planId=None,
+                planName="Reguleringsplan (arealformål funnet)",
+                planStatus=PlanStatus.gjeldende,
+                arealFormål=str(areal_formal) if areal_formal else "ukjent",
+                hensynssoner=[],
+                byggegrense=None,
+                utnyttelsesgrad=None,
+                planUrl=plan_register_url,
+            )
+            await cache_set(cache_key, result.model_dump(), CACHE_TTL)
+            return result
 
-        except Exception as e:
-            logger.warning("plan_wfs_error", lat=lat, lng=lng, error=str(e))
-
-        return None
-
-    def _pick_best_feature(self, features: list) -> Optional[Dict]:
-        """Pick the most specific plan from a list of GeoJSON features."""
-        if not features:
-            return None
-
-        # Prefer detaljregulering over reguleringsplan over kommuneplan
-        priority_order = ["detaljregulering", "reguleringsplan", "regulering", "kommuneplan"]
-        for priority in priority_order:
-            for f in features:
-                props = f.get("properties", {})
-                plantype = str(props.get("plantype", props.get("planType", ""))).lower()
-                if priority in plantype:
-                    return f
-
-        return features[0]
-
-    def _parse_geojson_feature(self, feature: Dict[str, Any]) -> PlanLayerResult:
-        """Parse a GeoJSON feature into PlanLayerResult."""
-        props = feature.get("properties", {})
-
-        plantype = str(props.get("plantype", props.get("planType", ""))).lower()
-        if "detaljregulering" in plantype or "reguleringsplan" in plantype or "regulering" in plantype:
-            status = PlanStatus.regulert
-        elif "kommuneplan" in plantype or "kommunedelplan" in plantype:
-            status = PlanStatus.kommuneplan
-        else:
-            status = PlanStatus.regulert  # Default for WFS results
-
-        plan_id = (
-            props.get("planidentifikasjon") or
-            props.get("planId") or
-            props.get("planid") or
-            props.get("lokal_id") or
-            props.get("id")
-        )
-        plan_name = (
-            props.get("plannavn") or
-            props.get("planNavn") or
-            props.get("name") or
-            props.get("planname") or
-            plantype.title()
-        )
-
-        areal_formal = (
-            props.get("arealformål") or
-            props.get("arealFormål") or
-            props.get("formål") or
-            props.get("planformål") or
-            "boligbebyggelse"  # Most common for residential areas
-        )
-        if isinstance(areal_formal, str):
-            areal_formal = areal_formal.lower()
-
-        return PlanLayerResult(
-            planId=str(plan_id) if plan_id else None,
-            planName=plan_name,
-            planStatus=status,
-            arealFormål=areal_formal or "ukjent",
-            hensynssoner=[],
-            byggegrense=None,
-            utnyttelsesgrad=None,
-            planUrl=props.get("planUrl") or props.get("planurl"),
-            geometry=None,
-        )
-
-    def _parse_gml_response(self, xml_text: str, lat: float, lng: float) -> Optional[PlanLayerResult]:
-        """Parse GML/XML WFS response."""
-        try:
-            root = ET.fromstring(xml_text)
-            ns = {
-                "wfs": "http://www.opengis.net/wfs/2.0",
-                "app": "http://skjema.geonorge.no/SOSI/produktspesifikasjon/Reguleringsplanforslag/20170401",
-            }
-            members = root.findall(".//wfs:member", ns) or root.findall(".//{*}member")
-            if members:
-                logger.info("plan_found_gml", lat=lat, lng=lng, count=len(members))
-                return PlanLayerResult(
-                    planId=None,
-                    planName="Reguleringsplan (GML)",
-                    planStatus=PlanStatus.regulert,
-                    arealFormål="ukjent",
-                    hensynssoner=[],
-                )
-        except Exception as e:
-            logger.warning("plan_gml_parse_error", error=str(e))
-        return None
-
-    def _create_unknown_plan(self) -> PlanLayerResult:
-        return PlanLayerResult(
+        # No plan found – return unknown status with link to municipality plan register
+        logger.info("plan_not_found", lat=lat, lng=lng, kommunenr=kommunenr)
+        result = PlanLayer(
+            planId=None,
+            planName=None,
             planStatus=PlanStatus.ukjent,
             arealFormål="ukjent",
             hensynssoner=[],
+            byggegrense=None,
+            utnyttelsesgrad=None,
+            planUrl=plan_register_url,
         )
+        await cache_set(cache_key, result.model_dump(), CACHE_TTL)
+        return result
 
-    async def close(self):
-        await self.client.aclose()
+
+def _map_plan_status(raw: str) -> PlanStatus:
+    """Map raw planstatus string to our PlanStatus enum."""
+    if not raw:
+        return PlanStatus.ukjent
+    raw_lower = raw.lower()
+    if any(x in raw_lower for x in ["gjeldende", "vedtatt", "approved", "aktiv"]):
+        return PlanStatus.gjeldende
+    if any(x in raw_lower for x in ["forslag", "høring", "proposed", "draft"]):
+        return PlanStatus.forslag
+    if any(x in raw_lower for x in ["opphev", "utgått", "cancelled", "revoked"]):
+        return PlanStatus.opphevet
+    return PlanStatus.ukjent
 
 
 _plan_provider: Optional[PlanProvider] = None
