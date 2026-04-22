@@ -26,12 +26,15 @@ COPY . .
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
+# Set default port (Railway will override with its own PORT env var)
+ENV PORT=8000
+
 # Expose default port
 EXPOSE 8000
 
-# Health check using PORT env var with fallback
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
-    CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
+    CMD curl -f http://localhost:${PORT}/health || exit 1
 
-# Run via python main.py so PORT env var is read inside Python (not shell)
+# Run via python main.py - reads PORT from os.environ
 CMD ["python", "main.py"]
