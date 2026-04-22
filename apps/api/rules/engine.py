@@ -1,7 +1,12 @@
 """
 Regelmotor for AI Byggesøknad.
 Deklarative regler evalueres mot prosjektdata.
-Regler er definert i YAML og lagret i databasen.
+Oppdatert basert på:
+- Plan- og bygningsloven (PBL)
+- Byggesaksforskriften (SAK10)
+- Byggteknisk forskrift (TEK17)
+- Veiledning om dispensasjon (Norsk Kommunalteknisk Forening, 2021)
+- Sjekkliste for søknadsprosessen (Kristiansand kommune, 2026)
 """
 import structlog
 from typing import List, Dict, Any, Optional
@@ -38,27 +43,39 @@ class RuleContext:
 class RuleEngine:
     """
     Evaluates declarative rules against a project context.
-    Rules are defined as Python functions but loaded from YAML/DB config.
+    Rules are based on Norwegian building law (PBL, SAK10, TEK17).
     """
 
     def evaluate(self, ctx: RuleContext) -> List[RuleResult]:
         """Evaluate all applicable rules and return results."""
         results: List[RuleResult] = []
 
-        # Run all rule evaluators
         evaluators = [
+            # Søknadsplikt
             self._rule_søkp_001,
             self._rule_søkp_002,
             self._rule_søkp_003,
+            self._rule_søkp_004,
+            # Planstatus
             self._rule_plan_001,
             self._rule_plan_002,
             self._rule_plan_003,
+            self._rule_plan_004,
+            # Naturfare
             self._rule_fare_001,
             self._rule_fare_002,
+            self._rule_fare_003,
+            # Dispensasjon
+            self._rule_disp_001,
+            self._rule_disp_002,
+            # Dokumentkrav
             self._rule_dok_001,
             self._rule_dok_002,
             self._rule_dok_003,
-            self._rule_disp_001,
+            self._rule_dok_004,
+            self._rule_dok_005,
+            # Infrastruktur og miljø
+            self._rule_infra_001,
         ]
 
         for evaluator in evaluators:
@@ -92,25 +109,25 @@ class RuleEngine:
         self, results: List[RuleResult], ctx: RuleContext
     ) -> Optional[bool]:
         """Determine if application is required based on rule results."""
-        # Check for explicit søknadsplikt rules
         søkp_results = [r for r in results if r.ruleGroup == "søknadsplikt"]
 
         for r in søkp_results:
             if r.status == RuleStatus.fail and "søknadspliktig" in r.explanation.lower():
                 return True
 
-        # Measure types that are generally application-required
         always_required = {
             MeasureType.bruksendring,
             MeasureType.tilbygg,
             MeasureType.påbygg,
             MeasureType.tomtedeling,
+            MeasureType.kjeller_innredning,
+            MeasureType.loft_innredning,
+            MeasureType.riving,
         }
 
         if ctx.measure_type in always_required:
             return True
 
-        # Measure types that may be exempt
         possibly_exempt = {
             MeasureType.garasje,
             MeasureType.carport,
@@ -133,54 +150,121 @@ class RuleEngine:
         steps = []
 
         blocking = [r for r in results if r.status == RuleStatus.fail and r.blocking]
-        warns = [r for r in results if r.status == RuleStatus.warn]
+        has_plan_conflict = any(r.ruleCode in ["PLAN-001", "PLAN-002"] for r in blocking)
+        has_flood = ctx.hazard and ctx.hazard.flomFare in [HazardLevel.middels, HazardLevel.høy]
+        has_landslide = ctx.hazard and ctx.hazard.skredFare in [HazardLevel.middels, HazardLevel.høy]
+
+        # Step 1: Check for temporary building ban and contaminated ground
+        steps.append("Sjekk om det er midlertidig forbud mot bygge- og deling i området (kontakt kommunen).")
+
+        # Step 2: Check plan status
+        steps.append("Sjekk gjeldende reguleringsplan for eiendommen på arealplaner.no eller kommunens planregister.")
 
         if application_required is True:
-            steps.append("Send søknad til kommunen via kommunens byggesaksportal eller Altinn.")
-            steps.append("Engasjer ansvarlig søker (f.eks. arkitekt eller byggmester) dersom tiltaket krever ansvarsrett.")
-            steps.append("Send nabovarsel til naboer og gjenboere minst 2 uker før søknad sendes.")
+            # Step 3: Nabovarsel
+            steps.append(
+                "Hent naboliste på kommunens Min side og send nabovarsel til naboer og gjenboere. "
+                "Vent minst 2 uker på eventuelle merknader (PBL § 21-3)."
+            )
+            # Step 4: Situasjonsplan
+            steps.append(
+                "Skriv ut situasjonskart fra kommunens kartportal og tegn inn tiltaket. "
+                "Situasjonsplanen skal være i målestokk 1:500 (1:1000 for store tiltak)."
+            )
+            # Step 5: Drawings
+            steps.append(
+                "Utarbeid tegninger av tiltaket: plan, snitt og fasade i målestokk 1:100."
+            )
+            # Step 6: Responsible applicant
+            steps.append(
+                "Vurder om tiltaket krever ansvarlig søker (arkitekt eller byggmester). "
+                "Tiltak i tiltaksklasse 1 kan søkes uten ansvarsrett av tiltakshaver selv."
+            )
 
-        if blocking:
-            steps.append("Avklar planforhold med kommunen – tiltaket kan kreve dispensasjon.")
+        if has_plan_conflict:
+            steps.append(
+                "Tiltaket kan kreve dispensasjon fra reguleringsplan. "
+                "Søk om dispensasjon etter PBL § 19-1 – begrunn at fordelene er klart større enn ulempene."
+            )
 
-        if ctx.hazard and ctx.hazard.flomFare in [HazardLevel.middels, HazardLevel.høy]:
-            steps.append("Innhent geoteknisk/hydrologisk vurdering for flomfare.")
+        if has_flood:
+            steps.append(
+                "Innhent hydrologisk/geoteknisk vurdering for flomfare (TEK17 § 7-2). "
+                "Se NVE sin flomsonekart på nve.no."
+            )
 
-        if ctx.hazard and ctx.hazard.skredFare in [HazardLevel.middels, HazardLevel.høy]:
-            steps.append("Innhent geoteknisk vurdering for skredfare.")
+        if has_landslide:
+            steps.append(
+                "Innhent geoteknisk vurdering for skredfare (TEK17 § 7-3). "
+                "Sjekk NVE sin aktsomhetskart for skred på nve.no."
+            )
+
+        if application_required is True:
+            steps.append(
+                "Send komplett søknad til kommunen med alle vedlegg. "
+                "Søknad kan sendes digitalt via kommunens Min side eller per e-post/post."
+            )
 
         if application_required is None:
-            steps.append("Kontakt kommunen for å avklare om tiltaket er søknadspliktig.")
+            steps.append(
+                "Kontakt kommunen for å avklare om tiltaket er søknadspliktig "
+                "eller kan gjennomføres som melding/uten søknad (PBL § 20-5, SAK10 § 4-1)."
+            )
 
         if not steps:
-            steps.append("Tiltaket ser ut til å ha lav regulatorisk risiko. Gjennomfør en grundigere vurdering med kommunen.")
+            steps.append(
+                "Tiltaket ser ut til å ha lav regulatorisk risiko. "
+                "Gjennomfør en grundigere vurdering med kommunen."
+            )
 
         return steps
 
     def generate_document_requirements(
         self, application_required: Optional[bool], ctx: RuleContext
     ) -> List[str]:
-        """Generate list of likely required documents."""
+        """Generate list of likely required documents based on measure type and context."""
         if not application_required:
             return []
 
         docs = [
-            "Situasjonsplan (målsatt, viser eiendomsgrenser og eksisterende/planlagte bygg)",
-            "Plantegninger (eksisterende og ny situasjon)",
-            "Fasadetegninger (alle fasader)",
-            "Snittegninger",
-            "Nabovarsel med kvittering",
-            "Søknadsskjema (blankett 5174 eller tilsvarende)",
+            "Søknadsskjema (blankett 5174 – Søknad om tillatelse til tiltak, eller digital innsending)",
+            "Situasjonsplan i målestokk 1:500 (tiltaket inntegnet på kart fra kommunen)",
+            "Plantegninger – eksisterende og ny situasjon (målestokk 1:100)",
+            "Fasadetegninger – alle fasader (målestokk 1:100)",
+            "Snittegninger (målestokk 1:100)",
+            "Nabovarsel med kvittering (gjenpart av varselet sendt til naboer)",
+            "Eventuelle nabomerknader med dine kommentarer",
         ]
 
-        if ctx.measure_type == MeasureType.bruksendring:
-            docs.append("Dokumentasjon på at ny bruk oppfyller TEK17-krav (brannsikkerhet, rømning, dagslys)")
-
         if ctx.measure_type in [MeasureType.tilbygg, MeasureType.påbygg]:
-            docs.append("Beregning av BYA/BRA (bebygd areal / bruksareal)")
+            docs.append("Beregning av BYA/BRA (bebygd areal og bruksareal)")
+            docs.append("Situasjonskart fra kommunens kartportal (bestilles via kommunen)")
 
-        if ctx.hazard and ctx.hazard.flomFare != HazardLevel.ukjent:
-            docs.append("Hydrologisk/geoteknisk rapport (naturfare)")
+        if ctx.measure_type == MeasureType.bruksendring:
+            docs.append(
+                "Dokumentasjon på at ny bruk oppfyller TEK17-krav "
+                "(brannsikkerhet, rømning, dagslys, ventilasjon)"
+            )
+            docs.append("Redegjørelse for universell utforming (TEK17 kap. 12)")
+
+        if ctx.measure_type in [MeasureType.tilbygg, MeasureType.påbygg, MeasureType.bruksendring]:
+            docs.append("Energiberegning (TEK17 kap. 14) ved nybygg og større tilbygg")
+
+        if ctx.hazard and ctx.hazard.flomFare in [HazardLevel.middels, HazardLevel.høy]:
+            docs.append("Hydrologisk/geoteknisk rapport (naturfare – flom, TEK17 § 7-2)")
+
+        if ctx.hazard and ctx.hazard.skredFare in [HazardLevel.middels, HazardLevel.høy]:
+            docs.append("Geoteknisk rapport (naturfare – skred, TEK17 § 7-3)")
+
+        # Check if dispensation is needed
+        if ctx.plan and ctx.plan.planStatus == PlanStatus.regulert:
+            areal = (ctx.plan.arealFormål or "").lower()
+            compatible = ["boligbebyggelse", "fritidsbebyggelse", "kombinert", "sentrumsformål", "ukjent", ""]
+            if not any(c in areal for c in compatible):
+                docs.append(
+                    "Søknad om dispensasjon fra reguleringsplan (PBL § 19-1) "
+                    "med begrunnelse for at fordelene er klart større enn ulempene"
+                )
 
         return docs
 
@@ -189,7 +273,7 @@ class RuleEngine:
     # ============================================================
 
     def _rule_søkp_001(self, ctx: RuleContext) -> Optional[RuleResult]:
-        """SØKP-001: Søknadsplikt bruksendring til boenhet."""
+        """SØKP-001: Søknadsplikt bruksendring."""
         if ctx.measure_type != MeasureType.bruksendring:
             return None
 
@@ -199,16 +283,17 @@ class RuleEngine:
             ruleGroup="søknadsplikt",
             status=RuleStatus.fail,
             explanation=(
-                "Bruksendring er søknadspliktig etter plan- og bygningsloven § 20-1 bokstav d. "
-                "Tiltaket krever søknad til kommunen."
+                "Bruksendring er søknadspliktig etter PBL § 20-1 bokstav d. "
+                "Tiltaket krever søknad til kommunen og normalt ansvarlig søker. "
+                "Ny bruk må oppfylle kravene i TEK17 (brannsikkerhet, rømning, dagslys m.m.)."
             ),
-            evidenceRefs=["PBL § 20-1 bokstav d"],
+            evidenceRefs=["PBL § 20-1 bokstav d", "TEK17", "SAK10 § 6-3"],
             blocking=True,
-            sourceVersion="1.0",
+            sourceVersion="1.1",
         )
 
     def _rule_søkp_002(self, ctx: RuleContext) -> Optional[RuleResult]:
-        """SØKP-002: Søknadsplikt tilbygg."""
+        """SØKP-002: Søknadsplikt tilbygg/påbygg."""
         if ctx.measure_type not in [MeasureType.tilbygg, MeasureType.påbygg]:
             return None
 
@@ -219,19 +304,22 @@ class RuleEngine:
             status=RuleStatus.fail,
             explanation=(
                 "Tilbygg og påbygg er normalt søknadspliktig etter PBL § 20-1 bokstav b. "
-                "Svært små tilbygg (under 15 m²) kan i noen tilfeller være unntatt etter § 20-5 – "
-                "dette krever nærmere vurdering."
+                "Svært små tilbygg (under 15 m² BRA) kan i noen tilfeller være unntatt søknadsplikt "
+                "etter PBL § 20-5 og SAK10 § 4-1, forutsatt at de ikke er i strid med plan, "
+                "ikke plasseres nærmere enn 1,0 m fra nabogrense, og ikke krever dispensasjon."
             ),
-            evidenceRefs=["PBL § 20-1 bokstav b", "PBL § 20-5"],
+            evidenceRefs=["PBL § 20-1 bokstav b", "PBL § 20-5", "SAK10 § 4-1"],
             blocking=True,
-            sourceVersion="1.0",
+            sourceVersion="1.1",
         )
 
     def _rule_søkp_003(self, ctx: RuleContext) -> Optional[RuleResult]:
-        """SØKP-003: Mulig unntak fra søknadsplikt."""
+        """SØKP-003: Mulig unntak fra søknadsplikt (garasje, carport, støttemur, veranda)."""
         possibly_exempt = {MeasureType.garasje, MeasureType.carport, MeasureType.støttemur, MeasureType.veranda}
         if ctx.measure_type not in possibly_exempt:
             return None
+
+        type_name = ctx.measure_type.value.capitalize() if ctx.measure_type else "Tiltaket"
 
         return RuleResult(
             ruleCode="SØKP-003",
@@ -239,13 +327,42 @@ class RuleEngine:
             ruleGroup="søknadsplikt",
             status=RuleStatus.warn,
             explanation=(
-                f"{ctx.measure_type.value.capitalize() if ctx.measure_type else 'Tiltaket'} kan potensielt være unntatt søknadsplikt "
-                "etter PBL § 20-5 dersom det oppfyller alle vilkår (størrelse, avstand til nabogrense, "
-                "ikke i strid med plan m.m.). Sjekk kommunens veiledning."
+                f"{type_name} kan potensielt være unntatt søknadsplikt etter PBL § 20-5 og SAK10 § 4-1, "
+                "dersom det oppfyller alle vilkår: maks 50 m² BYA, maks én etasje, ikke kjeller, "
+                "avstand til nabogrense minst 1,0 m, ikke i strid med plan, og ikke krever dispensasjon. "
+                "Sjekk kommunens veiledning for detaljerte krav."
             ),
             evidenceRefs=["PBL § 20-5", "SAK10 § 4-1"],
             blocking=False,
-            sourceVersion="1.0",
+            sourceVersion="1.1",
+        )
+
+    def _rule_søkp_004(self, ctx: RuleContext) -> Optional[RuleResult]:
+        """SØKP-004: Søknadsplikt riving, kjeller/loft-innredning, tomtedeling."""
+        requires_permit = {MeasureType.riving, MeasureType.kjeller_innredning, MeasureType.loft_innredning, MeasureType.tomtedeling}
+        if ctx.measure_type not in requires_permit:
+            return None
+
+        type_map = {
+            MeasureType.riving: ("Riving", "PBL § 20-1 bokstav e"),
+            MeasureType.kjeller_innredning: ("Innredning av kjeller til oppholdsrom", "PBL § 20-1 bokstav d"),
+            MeasureType.loft_innredning: ("Innredning av loft til oppholdsrom", "PBL § 20-1 bokstav d"),
+            MeasureType.tomtedeling: ("Tomtedeling/fradeling", "PBL § 20-1 bokstav m"),
+        }
+        name, ref = type_map.get(ctx.measure_type, ("Tiltaket", "PBL § 20-1"))
+
+        return RuleResult(
+            ruleCode="SØKP-004",
+            ruleName=f"Søknadsplikt: {name}",
+            ruleGroup="søknadsplikt",
+            status=RuleStatus.fail,
+            explanation=(
+                f"{name} er søknadspliktig etter {ref}. "
+                "Tiltaket krever søknad til kommunen og normalt ansvarlig søker."
+            ),
+            evidenceRefs=[ref, "SAK10"],
+            blocking=True,
+            sourceVersion="1.1",
         )
 
     def _rule_plan_001(self, ctx: RuleContext) -> Optional[RuleResult]:
@@ -254,12 +371,11 @@ class RuleEngine:
             return None
 
         if ctx.plan.planStatus == PlanStatus.regulert:
-            # Check if arealformål is compatible with residential/construction
-            compatible = ["boligbebyggelse", "fritidsbebyggelse", "kombinert", "sentrumsformål"]
-            areal = ctx.plan.arealFormål.lower()
+            compatible = ["boligbebyggelse", "fritidsbebyggelse", "kombinert", "sentrumsformål", "ukjent", ""]
+            areal = (ctx.plan.arealFormål or "").lower()
             is_compatible = any(c in areal for c in compatible)
 
-            if not is_compatible and areal != "ukjent":
+            if not is_compatible:
                 return RuleResult(
                     ruleCode="PLAN-001",
                     ruleName="Mulig strid med reguleringsplan",
@@ -267,11 +383,13 @@ class RuleEngine:
                     status=RuleStatus.fail,
                     explanation=(
                         f"Eiendommen er regulert til '{ctx.plan.arealFormål}'. "
-                        "Tiltaket kan være i strid med reguleringsplanen og kreve dispensasjon etter PBL § 19-1."
+                        "Tiltaket kan være i strid med reguleringsplanen og kreve dispensasjon etter PBL § 19-1. "
+                        "Dispensasjon innvilges kun dersom fordelene er klart større enn ulempene, "
+                        "og hensynene bak bestemmelsen ikke vesentlig tilsidesettes (PBL § 19-2)."
                     ),
-                    evidenceRefs=["PBL § 19-1", "PBL § 12-4"],
+                    evidenceRefs=["PBL § 19-1", "PBL § 19-2", "PBL § 12-4"],
                     blocking=True,
-                    sourceVersion="1.0",
+                    sourceVersion="1.1",
                 )
 
         return None
@@ -281,7 +399,7 @@ class RuleEngine:
         if not ctx.plan:
             return None
 
-        if "lnf" in ctx.plan.arealFormål.lower():
+        if "lnf" in (ctx.plan.arealFormål or "").lower():
             return RuleResult(
                 ruleCode="PLAN-002",
                 ruleName="Tiltak i LNF-område",
@@ -289,11 +407,12 @@ class RuleEngine:
                 status=RuleStatus.fail,
                 explanation=(
                     "Eiendommen ligger i et LNF-område (Landbruk, Natur og Friluft). "
-                    "Byggetiltak er normalt ikke tillatt i LNF-områder uten dispensasjon."
+                    "Byggetiltak er normalt ikke tillatt i LNF-områder uten dispensasjon fra kommuneplanens arealdel. "
+                    "Dispensasjon er strengt regulert og innvilges sjelden for nye byggetiltak i LNF."
                 ),
-                evidenceRefs=["PBL § 11-7 nr. 5", "PBL § 19-1"],
+                evidenceRefs=["PBL § 11-7 nr. 5", "PBL § 19-1", "PBL § 19-2"],
                 blocking=True,
-                sourceVersion="1.0",
+                sourceVersion="1.1",
             )
 
         return None
@@ -310,11 +429,33 @@ class RuleEngine:
             status=RuleStatus.warn,
             explanation=(
                 f"Eiendommen er berørt av hensynssone(r): {', '.join(ctx.plan.hensynssoner)}. "
-                "Hensynssoner kan gi særskilte krav til utforming, materialbruk eller prosess."
+                "Hensynssoner kan gi særskilte krav til utforming, materialbruk eller saksbehandlingsprosess. "
+                "Kontakt kommunen for avklaring."
             ),
             evidenceRefs=["PBL § 11-8"],
             blocking=False,
-            sourceVersion="1.0",
+            sourceVersion="1.1",
+        )
+
+    def _rule_plan_004(self, ctx: RuleContext) -> Optional[RuleResult]:
+        """PLAN-004: Ukjent planstatus – advarsel."""
+        if not ctx.plan or ctx.plan.planStatus != PlanStatus.ukjent:
+            return None
+
+        return RuleResult(
+            ruleCode="PLAN-004",
+            ruleName="Planstatus ukjent – sjekk kommunens planregister",
+            ruleGroup="planstatus",
+            status=RuleStatus.warn,
+            explanation=(
+                "Planstatus for eiendommen er ikke avklart. "
+                "Sjekk gjeldende reguleringsplan på kommunens planregister (arealplaner.no) "
+                "eller kontakt kommunen for å avklare hvilke planbestemmelser som gjelder. "
+                "Planbestemmelsene kan ha avgjørende betydning for om tiltaket er tillatt."
+            ),
+            evidenceRefs=["PBL § 12-4", "PBL § 11-6"],
+            blocking=False,
+            sourceVersion="1.1",
         )
 
     def _rule_fare_001(self, ctx: RuleContext) -> Optional[RuleResult]:
@@ -322,20 +463,36 @@ class RuleEngine:
         if not ctx.hazard:
             return None
 
-        if ctx.hazard.flomFare in [HazardLevel.middels, HazardLevel.høy]:
+        if ctx.hazard.flomFare == HazardLevel.høy:
             return RuleResult(
                 ruleCode="FARE-001",
-                ruleName="Tiltak i flomsone",
+                ruleName="Tiltak i flomsone – høy fare",
                 ruleGroup="naturfare",
                 status=RuleStatus.fail,
                 explanation=(
-                    f"Eiendommen ligger i et område med {ctx.hazard.flomFare.value} flomfare. "
+                    "Eiendommen ligger i et område med høy flomfare (NVE flomsonekart). "
+                    "Tiltak krever særskilt hydrologisk og geoteknisk vurdering etter TEK17 § 7-2. "
+                    "Nye boliger og fritidsboliger tillates ikke i 200-årsflomsonene. "
+                    "Innhent rapport fra godkjent geotekniker/hydrologer."
+                ),
+                evidenceRefs=["TEK17 § 7-2", "NVE retningslinjer 1/2008", "PBL § 28-1"],
+                blocking=True,
+                sourceVersion="1.1",
+            )
+        elif ctx.hazard.flomFare == HazardLevel.middels:
+            return RuleResult(
+                ruleCode="FARE-001",
+                ruleName="Tiltak i flomsone – middels fare",
+                ruleGroup="naturfare",
+                status=RuleStatus.fail,
+                explanation=(
+                    "Eiendommen ligger i et område med middels flomfare (NVE flomsonekart). "
                     "Tiltak krever særskilt hydrologisk/geoteknisk vurdering og dokumentasjon "
-                    "etter TEK17 § 7-2."
+                    "etter TEK17 § 7-2. Kontakt NVE eller en godkjent geotekniker."
                 ),
                 evidenceRefs=["TEK17 § 7-2", "NVE retningslinjer"],
                 blocking=True,
-                sourceVersion="1.0",
+                sourceVersion="1.1",
             )
 
         return None
@@ -352,21 +509,103 @@ class RuleEngine:
                 ruleGroup="naturfare",
                 status=RuleStatus.fail,
                 explanation=(
-                    f"Eiendommen ligger i et område med {ctx.hazard.skredFare.value} skredfare. "
-                    "Tiltak krever geoteknisk vurdering og dokumentasjon etter TEK17 § 7-3."
+                    f"Eiendommen ligger i et område med {ctx.hazard.skredFare.value} skredfare (NVE aktsomhetskart). "
+                    "Tiltak krever geoteknisk vurdering og dokumentasjon etter TEK17 § 7-3. "
+                    "Nye tiltak i skredfareområder krever særskilt sikkerhetsdokumentasjon."
                 ),
-                evidenceRefs=["TEK17 § 7-3", "NVE retningslinjer"],
+                evidenceRefs=["TEK17 § 7-3", "NVE retningslinjer", "PBL § 28-1"],
                 blocking=True,
-                sourceVersion="1.0",
+                sourceVersion="1.1",
             )
 
         return None
+
+    def _rule_fare_003(self, ctx: RuleContext) -> Optional[RuleResult]:
+        """FARE-003: Sjekk for forurenset grunn."""
+        # Always warn about contaminated ground check for new construction
+        construction_types = {
+            MeasureType.tilbygg, MeasureType.påbygg, MeasureType.garasje,
+            MeasureType.bruksendring, MeasureType.kjeller_innredning
+        }
+        if ctx.measure_type not in construction_types:
+            return None
+
+        return RuleResult(
+            ruleCode="FARE-003",
+            ruleName="Sjekk for forurenset grunn",
+            ruleGroup="naturfare",
+            status=RuleStatus.warn,
+            explanation=(
+                "Vurder om byggetiltaket kan berøre forurenset grunn. "
+                "Sjekk Miljødirektoratets grunnforurensningsdatabase (grunnforurensning.miljodirektoratet.no) "
+                "for å se om eiendommen er registrert med forurenset grunn. "
+                "Graving i forurenset grunn krever særskilt håndtering og kan utløse meldeplikt."
+            ),
+            evidenceRefs=["Forurensningsloven § 7", "TEK17 § 9-2"],
+            blocking=False,
+            sourceVersion="1.1",
+        )
+
+    def _rule_disp_001(self, ctx: RuleContext) -> Optional[RuleResult]:
+        """DISP-001: Dispensasjonsindikator fra reguleringsplan."""
+        if not ctx.plan:
+            return None
+
+        plan_conflict = (
+            ctx.plan.planStatus == PlanStatus.regulert
+            and (ctx.plan.arealFormål or "").lower() not in ["boligbebyggelse", "ukjent", ""]
+        )
+
+        if not plan_conflict:
+            return None
+
+        return RuleResult(
+            ruleCode="DISP-001",
+            ruleName="Dispensasjon fra reguleringsplan kan kreves",
+            ruleGroup="dispensasjon",
+            status=RuleStatus.warn,
+            explanation=(
+                "Tiltaket kan kreve dispensasjon fra reguleringsplan (PBL § 19-1). "
+                "For å få dispensasjon må begge vilkårene i PBL § 19-2 være oppfylt: "
+                "(1) Hensynene bak bestemmelsen det dispenseres fra blir ikke vesentlig tilsidesatt, "
+                "og (2) fordelene ved dispensasjonen er klart større enn ulempene. "
+                "Dispensasjonssøknaden skal begrunnes konkret for din sak – generelle argumenter tillegges liten vekt. "
+                "Behandlingstid: inntil 12 uker (PBL § 21-7)."
+            ),
+            evidenceRefs=["PBL § 19-1", "PBL § 19-2", "PBL § 21-7"],
+            blocking=False,
+            sourceVersion="1.1",
+        )
+
+    def _rule_disp_002(self, ctx: RuleContext) -> Optional[RuleResult]:
+        """DISP-002: Strandsonebestemmelse."""
+        # Check if property is near coast (100-meter belt) via extra context
+        near_coast = ctx.get("near_coast", False)
+        if not near_coast:
+            return None
+
+        return RuleResult(
+            ruleCode="DISP-002",
+            ruleName="Tiltak i strandsonen (100-metersbeltet)",
+            ruleGroup="dispensasjon",
+            status=RuleStatus.fail,
+            explanation=(
+                "Eiendommen kan ligge i 100-metersbeltet langs sjø (strandsonen). "
+                "Byggetiltak i strandsonen er forbudt etter PBL § 1-8 uten dispensasjon. "
+                "Dispensasjon fra strandsoneforbud er svært strengt regulert og innvilges sjelden. "
+                "Kontakt kommunen for avklaring av om eiendommen er i strandsonen."
+            ),
+            evidenceRefs=["PBL § 1-8", "PBL § 19-1"],
+            blocking=True,
+            sourceVersion="1.1",
+        )
 
     def _rule_dok_001(self, ctx: RuleContext) -> Optional[RuleResult]:
         """DOK-001: Situasjonsplan kreves."""
         measure_requires_permit = ctx.measure_type in {
             MeasureType.bruksendring, MeasureType.tilbygg, MeasureType.påbygg,
-            MeasureType.tomtedeling, MeasureType.kjeller_innredning, MeasureType.loft_innredning
+            MeasureType.tomtedeling, MeasureType.kjeller_innredning, MeasureType.loft_innredning,
+            MeasureType.riving,
         }
         if not measure_requires_permit:
             return None
@@ -376,17 +615,22 @@ class RuleEngine:
             ruleName="Dokumentkrav: Situasjonsplan",
             ruleGroup="dokumentkrav",
             status=RuleStatus.warn,
-            explanation="Søknadspliktige tiltak krever situasjonsplan som viser eiendomsgrenser og bygningsplassering.",
+            explanation=(
+                "Søknadspliktige tiltak krever situasjonsplan som viser eiendomsgrenser, "
+                "eksisterende og planlagte bygg, og avstand til nabogrense. "
+                "Situasjonsplanen skal være i målestokk 1:500 (1:1000 for store tiltak). "
+                "Bestill situasjonskart fra kommunens kartportal."
+            ),
             evidenceRefs=["SAK10 § 5-4"],
             blocking=False,
-            sourceVersion="1.0",
+            sourceVersion="1.1",
         )
 
     def _rule_dok_002(self, ctx: RuleContext) -> Optional[RuleResult]:
         """DOK-002: Tegninger kreves."""
         measure_requires_permit = ctx.measure_type in {
             MeasureType.bruksendring, MeasureType.tilbygg, MeasureType.påbygg,
-            MeasureType.tomtedeling, MeasureType.kjeller_innredning, MeasureType.loft_innredning
+            MeasureType.tomtedeling, MeasureType.kjeller_innredning, MeasureType.loft_innredning,
         }
         if not measure_requires_permit:
             return None
@@ -396,17 +640,20 @@ class RuleEngine:
             ruleName="Dokumentkrav: Plan-, fasade- og snittegninger",
             ruleGroup="dokumentkrav",
             status=RuleStatus.warn,
-            explanation="Søknadspliktige tiltak krever plan-, fasade- og snittegninger i målestokk.",
+            explanation=(
+                "Søknadspliktige tiltak krever plan-, fasade- og snittegninger i målestokk 1:100. "
+                "Tegningene skal vise eksisterende og ny situasjon, og inneholde nødvendige mål."
+            ),
             evidenceRefs=["SAK10 § 5-4"],
             blocking=False,
-            sourceVersion="1.0",
+            sourceVersion="1.1",
         )
 
     def _rule_dok_003(self, ctx: RuleContext) -> Optional[RuleResult]:
         """DOK-003: Nabovarsel kreves."""
         measure_requires_permit = ctx.measure_type in {
             MeasureType.bruksendring, MeasureType.tilbygg, MeasureType.påbygg,
-            MeasureType.tomtedeling, MeasureType.kjeller_innredning, MeasureType.loft_innredning
+            MeasureType.tomtedeling, MeasureType.kjeller_innredning, MeasureType.loft_innredning,
         }
         if not measure_requires_permit:
             return None
@@ -416,38 +663,86 @@ class RuleEngine:
             ruleName="Dokumentkrav: Nabovarsel",
             ruleGroup="dokumentkrav",
             status=RuleStatus.warn,
-            explanation="Søknadspliktige tiltak krever nabovarsel til naboer og gjenboere etter PBL § 21-3.",
+            explanation=(
+                "Søknadspliktige tiltak krever nabovarsel til naboer og gjenboere etter PBL § 21-3. "
+                "Naboene skal sende sine merknader til deg, slik at du kan kommentere dem "
+                "før du sender alt samlet til kommunen. Vent minst 2 uker på merknader. "
+                "Hent naboliste på kommunens Min side."
+            ),
             evidenceRefs=["PBL § 21-3", "SAK10 § 5-2"],
             blocking=False,
-            sourceVersion="1.0",
+            sourceVersion="1.1",
         )
 
-    def _rule_disp_001(self, ctx: RuleContext) -> Optional[RuleResult]:
-        """DISP-001: Dispensasjonsindikator."""
-        if not ctx.plan:
-            return None
-
-        plan_conflict = (
-            ctx.plan.planStatus == PlanStatus.regulert
-            and ctx.plan.arealFormål not in ["boligbebyggelse", "ukjent"]
-        )
-
-        if not plan_conflict:
+    def _rule_dok_004(self, ctx: RuleContext) -> Optional[RuleResult]:
+        """DOK-004: Grunnbokutskrift kan være nødvendig."""
+        measure_requires_permit = ctx.measure_type in {
+            MeasureType.tomtedeling, MeasureType.bruksendring,
+        }
+        if not measure_requires_permit:
             return None
 
         return RuleResult(
-            ruleCode="DISP-001",
-            ruleName="Dispensasjonsindikator",
-            ruleGroup="dispensasjon",
+            ruleCode="DOK-004",
+            ruleName="Dokumentkrav: Grunnbokutskrift",
+            ruleGroup="dokumentkrav",
             status=RuleStatus.warn,
             explanation=(
-                "Tiltaket kan kreve dispensasjon fra reguleringsplan. "
-                "Dispensasjon etter PBL § 19-1 innvilges kun dersom fordelene er vesentlig "
-                "større enn ulempene og tiltaket ikke er i strid med nasjonale interesser."
+                "For tomtedeling og visse bruksendringer kan kommunen kreve grunnbokutskrift "
+                "for å dokumentere eierforhold og heftelser på eiendommen. "
+                "Grunnbokutskrift bestilles fra Kartverket (seeiendom.no)."
             ),
-            evidenceRefs=["PBL § 19-1", "PBL § 19-2"],
+            evidenceRefs=["PBL § 26-1"],
             blocking=False,
-            sourceVersion="1.0",
+            sourceVersion="1.1",
+        )
+
+    def _rule_dok_005(self, ctx: RuleContext) -> Optional[RuleResult]:
+        """DOK-005: Samtykkeerklæring fra nabo ved avstand til nabogrense."""
+        possibly_close = ctx.measure_type in {
+            MeasureType.garasje, MeasureType.carport, MeasureType.støttemur,
+            MeasureType.tilbygg, MeasureType.påbygg,
+        }
+        if not possibly_close:
+            return None
+
+        return RuleResult(
+            ruleCode="DOK-005",
+            ruleName="Samtykkeerklæring fra nabo ved avstand til nabogrense",
+            ruleGroup="dokumentkrav",
+            status=RuleStatus.warn,
+            explanation=(
+                "Dersom tiltaket plasseres nærmere nabogrense enn 4,0 m (PBL § 29-4), "
+                "kreves skriftlig samtykkeerklæring fra berørt nabo. "
+                "Uten samtykke må du søke om dispensasjon fra avstandskravet."
+            ),
+            evidenceRefs=["PBL § 29-4", "SAK10 § 5-4"],
+            blocking=False,
+            sourceVersion="1.1",
+        )
+
+    def _rule_infra_001(self, ctx: RuleContext) -> Optional[RuleResult]:
+        """INFRA-001: Vann, avløp og avkjørsel."""
+        construction_types = {
+            MeasureType.tilbygg, MeasureType.påbygg, MeasureType.bruksendring,
+            MeasureType.garasje,
+        }
+        if ctx.measure_type not in construction_types:
+            return None
+
+        return RuleResult(
+            ruleCode="INFRA-001",
+            ruleName="Sjekk vann, avløp og avkjørsel",
+            ruleGroup="infrastruktur",
+            status=RuleStatus.warn,
+            explanation=(
+                "Sjekk om tiltaket berører vann- og avløpsanlegg, er nær offentlig vann- og avløpsnett, "
+                "er nær høyspentledninger, eller krever avkjørselstillatelse fra kommunen. "
+                "Kontakt kommunen for veiledning om kommunens veinormal og VA-norm."
+            ),
+            evidenceRefs=["PBL § 27-1", "PBL § 27-2", "Veglova"],
+            blocking=False,
+            sourceVersion="1.1",
         )
 
 

@@ -21,6 +21,8 @@ class GenerateTextDocumentRequest(BaseModel):
     projectId: str
     ownerName: Optional[str] = "[Eiers navn]"
     ownerAddress: Optional[str] = "[Eiers adresse]"
+    ownerPhone: Optional[str] = "[Telefon]"
+    ownerEmail: Optional[str] = "[E-post]"
 
 
 @router.post("/generate")
@@ -109,6 +111,62 @@ async def generate_soknadsutkast(req: GenerateTextDocumentRequest):
     )
     return ApiResponse(data={
         "type": "soknadsutkast",
+        "projectId": req.projectId,
+        "content": text,
+        "aiGenerated": True,
+    })
+
+
+@router.post("/dispensasjonssoknad")
+async def generate_dispensasjonssoknad(req: GenerateTextDocumentRequest):
+    """
+    AI Agent 6: Generate a dispensasjonssøknad (dispensation application).
+    Based on NKF skjema (februar 2021) and PBL § 19-1/§ 19-2.
+    """
+    project = await get_project(req.projectId)
+    if not project:
+        raise HTTPException(status_code=404, detail="Prosjekt ikke funnet")
+
+    analysis = await get_analysis_result(req.projectId)
+    analysis_dict = analysis.model_dump() if analysis else None
+
+    generator = get_document_generator()
+    text = await generator.generate_dispensasjonssoknad(
+        project=project.model_dump(),
+        analysis=analysis_dict,
+        owner_name=req.ownerName or "[Tiltakshavers navn]",
+        owner_address=req.ownerAddress or "[Tiltakshavers adresse]",
+        owner_phone=req.ownerPhone or "[Telefon]",
+        owner_email=req.ownerEmail or "[E-post]",
+    )
+    return ApiResponse(data={
+        "type": "dispensasjonssoknad",
+        "projectId": req.projectId,
+        "content": text,
+        "aiGenerated": True,
+        "legalBasis": "PBL § 19-1, PBL § 19-2",
+    })
+
+
+@router.post("/sjekkliste")
+async def generate_sjekkliste(req: GenerateTextDocumentRequest):
+    """
+    AI Agent 7: Generate a step-by-step checklist for the building permit process.
+    """
+    project = await get_project(req.projectId)
+    if not project:
+        raise HTTPException(status_code=404, detail="Prosjekt ikke funnet")
+
+    analysis = await get_analysis_result(req.projectId)
+    analysis_dict = analysis.model_dump() if analysis else None
+
+    generator = get_document_generator()
+    text = await generator.generate_sjekkliste(
+        project=project.model_dump(),
+        analysis=analysis_dict,
+    )
+    return ApiResponse(data={
+        "type": "sjekkliste",
         "projectId": req.projectId,
         "content": text,
         "aiGenerated": True,
