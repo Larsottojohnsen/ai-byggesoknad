@@ -41,30 +41,37 @@ async def identify_municipality(lat: float, lng: float) -> Dict[str, Any]:
         "source": "fallback",
     }
 
-    try:
-        # Kartverket WS API – punkt-i-polygon mot administrative grenser
-        url = "https://ws.geonorge.no/kommuneinfo/v1/punkt"
-        params = {"nord": lat, "ost": lng, "koordsys": 4326}
+    # NOTE: The kommuneinfo API moved in Dec 2023 from ws.geonorge.no to api.kartverket.no
+    # Try new endpoint first, then fall back to old one
+    endpoints = [
+        "https://api.kartverket.no/kommuneinfo/v1/punkt",
+        "https://ws.geonorge.no/kommuneinfo/v1/punkt",
+    ]
 
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.get(url, params=params)
-            if resp.status_code == 200:
-                data = resp.json()
-                result = {
-                    "kommunenr": data.get("kommunenummer", ""),
-                    "kommunenavn": data.get("kommunenavn", "Ukjent"),
-                    "fylke": data.get("fylkesnavn", "Ukjent"),
-                    "source": "kartverket",
-                }
-                logger.info(
-                    "municipality_identified",
-                    kommunenr=result["kommunenr"],
-                    kommunenavn=result["kommunenavn"],
-                )
-            else:
-                logger.warning("municipality_api_error", status=resp.status_code)
-    except Exception as e:
-        logger.warning("municipality_lookup_failed", error=str(e))
+    for url in endpoints:
+        try:
+            params = {"nord": lat, "ost": lng, "koordsys": 4326}
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url, params=params)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    result = {
+                        "kommunenr": data.get("kommunenummer", ""),
+                        "kommunenavn": data.get("kommunenavn", "Ukjent"),
+                        "fylke": data.get("fylkesnavn", "Ukjent"),
+                        "source": "kartverket",
+                    }
+                    logger.info(
+                        "municipality_identified",
+                        kommunenr=result["kommunenr"],
+                        kommunenavn=result["kommunenavn"],
+                        url=url,
+                    )
+                    break
+                else:
+                    logger.warning("municipality_api_error", status=resp.status_code, url=url)
+        except Exception as e:
+            logger.warning("municipality_lookup_failed", error=str(e), url=url)
 
     _geo_cache[cache_key] = result
     return result

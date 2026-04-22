@@ -11,10 +11,15 @@ from models.schemas import HazardResult, HazardLevel
 
 logger = structlog.get_logger()
 
-# NVE ArcGIS REST services (confirmed working from Railway)
-NVE_BASE = "https://nve.geodataonline.no/arcgis/rest/services"
-NVE_FLOM_URL = f"{NVE_BASE}/FlomAktsomhet/MapServer/identify"
-NVE_SKRED_URL = f"{NVE_BASE}/Skredfaresoner1/MapServer/identify"
+# NVE ArcGIS REST services
+# kart.nve.no is the public-facing endpoint (confirmed working)
+# nve.geodataonline.no is blocked from some networks
+NVE_BASE_PRIMARY = "https://kart.nve.no/enterprise/rest/services"
+NVE_BASE_FALLBACK = "https://nve.geodataonline.no/arcgis/rest/services"
+NVE_FLOM_URL = f"{NVE_BASE_PRIMARY}/Flomaktsomhet/MapServer/identify"
+NVE_FLOM_URL_FALLBACK = f"{NVE_BASE_FALLBACK}/FlomAktsomhet/MapServer/identify"
+NVE_SKRED_URL = f"{NVE_BASE_PRIMARY}/Skredfaresoner/MapServer/identify"
+NVE_SKRED_URL_FALLBACK = f"{NVE_BASE_FALLBACK}/Skredfaresoner1/MapServer/identify"
 
 CACHE_TTL = 86400  # 24 hours
 
@@ -58,77 +63,87 @@ class HazardProvider:
         }
 
     async def _check_flood_risk(self, lat: float, lng: float) -> HazardLevel:
-        """Check flood risk using NVE FlomAktsomhet."""
-        try:
-            response = await self.client.get(
-                NVE_FLOM_URL,
-                params=self._build_identify_params(lat, lng),
-                timeout=12.0,
-            )
+        """Check flood risk using NVE FlomAktsomhet (kart.nve.no with fallback)."""
+        for url in [NVE_FLOM_URL, NVE_FLOM_URL_FALLBACK]:
+            try:
+                response = await self.client.get(
+                    url,
+                    params=self._build_identify_params(lat, lng),
+                    timeout=12.0,
+                )
 
-            if response.status_code == 200:
-                data = response.json()
-                results = data.get("results", [])
-                if results:
-                    for r in results:
-                        attrs = r.get("attributes", {})
-                        # NVE FlomAktsomhet uses FLOMSONE or AKTSOMHET field
-                        zone = (
-                            attrs.get("FLOMSONE") or
-                            attrs.get("AKTSOMHET") or
-                            attrs.get("flomsone") or
-                            attrs.get("aktsomhet") or
-                            ""
-                        )
-                        level = self._map_nve_zone(str(zone))
-                        if level != HazardLevel.ukjent:
-                            logger.info("flood_risk_found", lat=lat, lng=lng, zone=zone, level=level.value)
-                            return level
-                    # Results found but no recognized zone - means area is in flood zone
-                    return HazardLevel.middels
+                if response.status_code == 200:
+                    data = response.json()
+                    results = data.get("results", [])
+                    if results:
+                        for r in results:
+                            attrs = r.get("attributes", {})
+                            # NVE FlomAktsomhet uses FLOMSONE or AKTSOMHET field
+                            zone = (
+                                attrs.get("FLOMSONE") or
+                                attrs.get("AKTSOMHET") or
+                                attrs.get("flomsone") or
+                                attrs.get("aktsomhet") or
+                                attrs.get("VassOmr") or
+                                ""
+                            )
+                            level = self._map_nve_zone(str(zone))
+                            if level != HazardLevel.ukjent:
+                                logger.info("flood_risk_found", lat=lat, lng=lng, zone=zone, level=level.value, url=url)
+                                return level
+                        # Results found but no recognized zone - means area is in flood zone
+                        logger.info("flood_risk_zone_found", lat=lat, lng=lng, count=len(results))
+                        return HazardLevel.middels
+                    else:
+                        # No results = no flood risk in this area
+                        logger.info("flood_risk_none", lat=lat, lng=lng, url=url)
+                        return HazardLevel.ingen
                 else:
-                    # No results = no flood risk in this area
-                    return HazardLevel.ingen
+                    logger.warning("flood_check_http_error", status=response.status_code, url=url)
 
-        except Exception as e:
-            logger.warning("flood_check_error", lat=lat, lng=lng, error=str(e))
+            except Exception as e:
+                logger.warning("flood_check_error", lat=lat, lng=lng, error=str(e), url=url)
 
         return HazardLevel.ukjent
 
     async def _check_landslide_risk(self, lat: float, lng: float) -> HazardLevel:
-        """Check landslide risk using NVE Skredfaresoner1."""
-        try:
-            response = await self.client.get(
-                NVE_SKRED_URL,
-                params=self._build_identify_params(lat, lng),
-                timeout=12.0,
-            )
+        """Check landslide risk using NVE Skredfaresoner (kart.nve.no with fallback)."""
+        for url in [NVE_SKRED_URL, NVE_SKRED_URL_FALLBACK]:
+            try:
+                response = await self.client.get(
+                    url,
+                    params=self._build_identify_params(lat, lng),
+                    timeout=12.0,
+                )
 
-            if response.status_code == 200:
-                data = response.json()
-                results = data.get("results", [])
-                if results:
-                    for r in results:
-                        attrs = r.get("attributes", {})
-                        zone = (
-                            attrs.get("SKREDSONE") or
-                            attrs.get("AKTSOMHET") or
-                            attrs.get("skredsone") or
-                            attrs.get("aktsomhet") or
-                            ""
-                        )
-                        level = self._map_nve_zone(str(zone))
-                        if level != HazardLevel.ukjent:
-                            logger.info("landslide_risk_found", lat=lat, lng=lng, zone=zone, level=level.value)
-                            return level
-                    # Results found but no recognized zone
-                    return HazardLevel.middels
+                if response.status_code == 200:
+                    data = response.json()
+                    results = data.get("results", [])
+                    if results:
+                        for r in results:
+                            attrs = r.get("attributes", {})
+                            zone = (
+                                attrs.get("SKREDSONE") or
+                                attrs.get("AKTSOMHET") or
+                                attrs.get("skredsone") or
+                                attrs.get("aktsomhet") or
+                                ""
+                            )
+                            level = self._map_nve_zone(str(zone))
+                            if level != HazardLevel.ukjent:
+                                logger.info("landslide_risk_found", lat=lat, lng=lng, zone=zone, level=level.value, url=url)
+                                return level
+                        # Results found but no recognized zone
+                        return HazardLevel.middels
+                    else:
+                        # No results = no landslide risk
+                        logger.info("landslide_risk_none", lat=lat, lng=lng, url=url)
+                        return HazardLevel.ingen
                 else:
-                    # No results = no landslide risk
-                    return HazardLevel.ingen
+                    logger.warning("landslide_check_http_error", status=response.status_code, url=url)
 
-        except Exception as e:
-            logger.warning("landslide_check_error", lat=lat, lng=lng, error=str(e))
+            except Exception as e:
+                logger.warning("landslide_check_error", lat=lat, lng=lng, error=str(e), url=url)
 
         return HazardLevel.ukjent
 

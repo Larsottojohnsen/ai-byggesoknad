@@ -10,8 +10,12 @@ from models.schemas import PropertyData
 
 logger = structlog.get_logger()
 
-# Kartverket Matrikkel REST API (confirmed working)
-MATRIKKEL_REST_URL = "https://ws.geonorge.no/eiendom/v1/punkt"
+# Kartverket Eiendom/Matrikkel REST API
+# NOTE: API may have moved, try multiple endpoints
+MATRIKKEL_ENDPOINTS = [
+    "https://ws.geonorge.no/eiendom/v1/punkt",
+    "https://api.kartverket.no/eiendom/v1/punkt",
+]
 CACHE_TTL = 86400  # 24 hours
 
 
@@ -26,31 +30,40 @@ class PropertyProvider:
         if cached:
             return PropertyData(**cached)
 
-        try:
-            response = await self.client.get(
-                MATRIKKEL_REST_URL,
-                params={
-                    "nord": lat,
-                    "ost": lng,
-                    "koordsys": 4326,
-                },
-                timeout=12.0,
-            )
+        for url in MATRIKKEL_ENDPOINTS:
+            try:
+                response = await self.client.get(
+                    url,
+                    params={
+                        "nord": lat,
+                        "ost": lng,
+                        "koordsys": 4326,
+                    },
+                    timeout=12.0,
+                )
 
-            if response.status_code == 200:
-                data = response.json()
-                eiendommer = data.get("eiendom", [])
-                if eiendommer:
-                    # Pick the first (closest) property
-                    eiendom = eiendommer[0]
-                    result = self._parse_eiendom(eiendom, lat, lng)
-                    await cache_set(cache_key, result.model_dump(), CACHE_TTL)
-                    return result
+                if response.status_code == 200:
+                    data = response.json()
+                    # Handle both list and dict responses
+                    if isinstance(data, list):
+                        eiendommer = data
+                    else:
+                        eiendommer = data.get("eiendom", data.get("eiendommer", []))
+                    if eiendommer:
+                        # Pick the first (closest) property
+                        eiendom = eiendommer[0]
+                        result = self._parse_eiendom(eiendom, lat, lng)
+                        await cache_set(cache_key, result.model_dump(), CACHE_TTL)
+                        logger.info("property_found", lat=lat, lng=lng, url=url)
+                        return result
+                    else:
+                        logger.info("property_no_data", status=response.status_code, lat=lat, lng=lng, url=url)
+                        break  # Got a valid response but no data - don't try fallback
+                else:
+                    logger.warning("matrikkel_rest_error", status=response.status_code, lat=lat, lng=lng, url=url)
 
-            logger.warning("matrikkel_rest_no_data", status=response.status_code, lat=lat, lng=lng)
-
-        except Exception as e:
-            logger.warning("property_lookup_error", lat=lat, lng=lng, error=str(e))
+            except Exception as e:
+                logger.warning("property_lookup_error", lat=lat, lng=lng, error=str(e), url=url)
 
         # Fallback: return minimal property from coordinate
         return self._create_minimal_property(lat, lng)
