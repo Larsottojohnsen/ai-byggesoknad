@@ -14,8 +14,14 @@ class Settings(BaseSettings):
     # Redis
     redis_url: str = "redis://localhost:6379/0"
 
-    # CORS
-    cors_origins: List[str] = ["http://localhost:3000"]
+    # CORS – allow all vercel.app subdomains and localhost
+    cors_origins: List[str] = [
+        "http://localhost:3000",
+        "https://vercel-flat.vercel.app",
+        "https://ai-byggesoknad-web.vercel.app",
+        "https://ai-byggesoknad.vercel.app",
+    ]
+    cors_allow_all: bool = True  # Set to False in production to restrict origins
 
     # OpenAI
     openai_api_key: str = ""
