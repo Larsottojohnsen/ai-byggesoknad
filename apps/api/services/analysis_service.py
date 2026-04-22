@@ -1,13 +1,16 @@
 """
 Analysis Service – orchestrates the full analysis pipeline:
 1. address → coordinates
-2. coordinates → property
-3. coordinates → plan layers
-4. coordinates → hazard data
-5. user input → measure classification (AI)
-6. rule engine → evaluation
-7. AI → summary
-8. persist results (PostgreSQL with in-memory fallback)
+2. coordinates → municipality (Fase 3)
+3. coordinates → property
+4. coordinates → plan layers
+5. coordinates → hazard data
+6. user input → measure classification (AI)
+7. rule engine → evaluation (+ kommune-specific rules)
+8. AI → summary
+9. persist results (PostgreSQL with in-memory fallback)
+
+Fase 3: emits SSE progress events via main._progress_store
 """
 from datetime import datetime, timezone
 import structlog
@@ -20,14 +23,28 @@ from models.schemas import (
 from providers.property_provider import get_property_provider
 from providers.plan_provider import get_plan_provider
 from providers.hazard_provider import get_hazard_provider
+from providers.municipality_provider import (
+    identify_municipality,
+    get_kommune_extra_docs,
+    get_kommune_special_measures,
+    get_kommune_fees,
+)
 from rules.engine import get_rule_engine, RuleContext
 from services.ai_orchestrator import get_ai_orchestrator
 from services.project_repository import ProjectRepository
 
 logger = structlog.get_logger()
 
-# Singleton repository (in-memory fallback, no DB session needed for dev)
 _repo = ProjectRepository()
+
+
+def _emit(project_id: str, step: str, message: str, pct: int):
+    """Emit a progress event to the SSE store (lazy import to avoid circular)."""
+    try:
+        from main import emit_progress
+        emit_progress(project_id, step, message, pct)
+    except Exception:
+        pass  # SSE is best-effort
 
 
 async def create_project(req: CreateProjectRequest) -> Project:
@@ -63,28 +80,44 @@ async def analyze_project(project_id: str) -> AnalysisResult:
 
     logger.info("analysis_started", project_id=project_id, lat=lat, lng=lng)
     await _repo.update(project_id, {"status": ProjectStatus.analyzing.value})
+    _emit(project_id, "start", "Starter analyse...", 5)
 
-    # 1. AI: Classify measure type
+    # 1. Municipality identification (Fase 3)
+    _emit(project_id, "municipality", "Identifiserer kommune...", 10)
+    municipality_info = await identify_municipality(lat, lng)
+    kommunenr = municipality_info.get("kommunenr", "")
+    kommunenavn = municipality_info.get("kommunenavn", "Ukjent")
+    logger.info("municipality_done", kommunenr=kommunenr, kommunenavn=kommunenavn)
+
+    # 2. AI: Classify measure type
+    _emit(project_id, "classify", "AI klassifiserer tiltak...", 20)
     orchestrator = get_ai_orchestrator()
     classification = await orchestrator.classify_measure(intent_text)
     logger.info("classification_done", measure_type=classification.measureType.value)
 
-    # 2. Property lookup
+    # 3. Property lookup
+    _emit(project_id, "property", "Henter eiendomsdata fra Kartverket...", 35)
     property_provider = get_property_provider()
     property_data = await property_provider.lookup_by_coordinates(lat, lng)
+    # Enrich property with municipality info if not already set
+    if property_data and not property_data.municipality:
+        property_data.municipality = kommunenavn
     logger.info("property_done", property_id=property_data.id if property_data else None)
 
-    # 3. Plan layer lookup
+    # 4. Plan layer lookup
+    _emit(project_id, "plan", "Henter reguleringsplan fra Geonorge...", 50)
     plan_provider = get_plan_provider()
     plan_layer = await plan_provider.lookup(lat, lng)
     logger.info("plan_done", plan_status=plan_layer.planStatus.value if plan_layer else None)
 
-    # 4. Hazard lookup
+    # 5. Hazard lookup
+    _emit(project_id, "hazard", "Henter faredata fra NVE...", 62)
     hazard_provider = get_hazard_provider()
     hazard = await hazard_provider.lookup(lat, lng)
     logger.info("hazard_done", flom=hazard.flomFare.value, skred=hazard.skredFare.value)
 
-    # 5. Rule engine evaluation
+    # 6. Rule engine evaluation
+    _emit(project_id, "rules", "Evaluerer regelverk (PBL, TEK17, SAK10)...", 75)
     rule_engine = get_rule_engine()
     ctx = RuleContext(
         measure_type=classification.measureType,
@@ -98,14 +131,29 @@ async def analyze_project(project_id: str) -> AnalysisResult:
     next_steps = rule_engine.generate_next_steps(rule_results, application_required, ctx)
     doc_requirements = rule_engine.generate_document_requirements(application_required, ctx)
 
+    # Enrich with municipality-specific document requirements
+    extra_docs = get_kommune_extra_docs(kommunenr)
+    if extra_docs:
+        doc_requirements = doc_requirements + extra_docs
+
+    # Check for municipality-specific measure rules
+    kommune_measure_rules = get_kommune_special_measures(
+        kommunenr, classification.measureType.value
+    )
+    if kommune_measure_rules:
+        logger.info("kommune_measure_rules_applied", kommunenr=kommunenr,
+                    measure=classification.measureType.value)
+
     logger.info(
         "rules_done",
         total=len(rule_results),
         risk=risk_level.value,
         app_required=application_required,
+        kommune_extra_docs=len(extra_docs),
     )
 
-    # 6. AI: Generate summary
+    # 7. AI: Generate summary
+    _emit(project_id, "summary", "AI genererer oppsummering...", 88)
     ai_summary = await orchestrator.summarize_analysis(
         intent_text=intent_text,
         classification=classification,
@@ -116,7 +164,7 @@ async def analyze_project(project_id: str) -> AnalysisResult:
         application_required=application_required,
     )
 
-    # 7. Build warnings
+    # 8. Build warnings
     warnings = []
     if classification.confidence < 0.7:
         warnings.append(
@@ -124,11 +172,17 @@ async def analyze_project(project_id: str) -> AnalysisResult:
             "Beskriv tiltaket mer detaljert for bedre vurdering."
         )
     if plan_layer and plan_layer.planStatus.value == "ukjent":
-        warnings.append("Planstatus for eiendommen er ukjent. Kontakt kommunen for å avklare gjeldende regulering.")
+        warnings.append(
+            "Planstatus for eiendommen er ukjent. Kontakt kommunen for å avklare gjeldende regulering."
+        )
     if hazard and hazard.flomFare.value == "ukjent":
         warnings.append("Faredata fra NVE er ikke tilgjengelig for denne eiendommen.")
+    if kommune_measure_rules and kommune_measure_rules.get("beskrivelse"):
+        warnings.append(
+            f"Kommunespesifikt krav ({kommunenavn}): {kommune_measure_rules['beskrivelse']}"
+        )
 
-    # 8. Assemble result
+    # 9. Assemble result
     analyzed_at = datetime.now(timezone.utc).isoformat()
     result = AnalysisResult(
         projectId=project_id,
@@ -146,9 +200,8 @@ async def analyze_project(project_id: str) -> AnalysisResult:
         analyzedAt=analyzed_at,
     )
 
-    # 9. Persist results
+    # 10. Persist results
     result_dict = result.model_dump()
-    # Convert enums to values for storage
     result_dict["riskLevel"] = risk_level.value
     result_dict["classification"]["measureType"] = classification.measureType.value
     if result_dict.get("planLayer") and result_dict["planLayer"].get("planStatus"):
@@ -159,9 +212,13 @@ async def analyze_project(project_id: str) -> AnalysisResult:
     result_dict["ruleResults"] = [
         {**rr.model_dump(), "status": rr.status.value} for rr in rule_results
     ]
+    result_dict["municipalityInfo"] = municipality_info
 
     await _repo.save_analysis_results(project_id, result_dict)
-    logger.info("analysis_complete", project_id=project_id, risk=risk_level.value)
+
+    _emit(project_id, "complete", "Analyse fullført!", 100)
+    logger.info("analysis_complete", project_id=project_id, risk=risk_level.value,
+                kommune=kommunenavn)
     return result
 
 

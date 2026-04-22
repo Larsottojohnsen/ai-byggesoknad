@@ -1,0 +1,53 @@
+# Kommunespesifikke regler – Bergen (kommunenr: 4601)
+# Kilde: Bergen kommunes byggesaksforskrift og kommuneplan 2019
+
+kommune_nr: "4601"
+kommune_navn: "Bergen"
+fylke: "Vestland"
+sist_oppdatert: "2026-01-01"
+
+kontakt:
+  epost: "postmottak@bygg.bergen.kommune.no"
+  telefon: "55 56 63 10"
+  url: "https://www.bergen.kommune.no/hvaskjer/tema/byggesak"
+  ebyggesak_url: "https://ebyggesak.no/bergen"
+
+arealplan:
+  maks_bya_bolig_sentrum: 55
+  maks_bya_bolig_ytre: 35
+  maks_gesims_hoyde_enebolig: 8.0
+  maks_mone_hoyde_enebolig: 11.0
+  min_uteoppholdsareal_per_boenhet: 6  # Bergen har strengere krav pga. terreng
+
+saerlige_tiltak:
+  - type: "tiltak_brannfare"
+    beskrivelse: "Bergen har særskilte krav til brannsikring i tett trehusbebyggelse (Bryggen-området)"
+    krav_brannteknisk_rapport: true
+
+  - type: "tiltak_skredfare"
+    beskrivelse: "Bergen har høy forekomst av skred – NVE-vurdering kreves i mange områder"
+    krav_nve_vurdering: true
+    saksbehandlingstid_uker: 10
+
+  - type: "kjeller_innredning"
+    beskrivelse: "Innredning av kjeller – Bergen har spesielle krav til drenering pga. høy nedbør"
+    krav_drenering_rapport: true
+    min_takhøyde_m: 2.2
+
+gebyrer:
+  enkel_tiltak_kr: 4900
+  ett_trinns_soknad_kr: 12800
+  to_trinns_rammetillatelse_kr: 19500
+  dispensasjon_kr: 7600
+  nabovarsel_per_nabo_kr: 0
+
+ekstra_dokumentkrav:
+  - "Situasjonskart fra Bergen kommunes kartportal"
+  - "Geoteknisk vurdering ved tiltak i skråterreng (>1:3)"
+  - "Dreneringsplan ved kjeller og grunnarbeider"
+
+regel_overrides:
+  FARE-003:
+    # Bergen: skredfare er særlig relevant
+    skred_terskel: "lav"
+    merknad: "Bergen har høy skredrisiko – vurder alltid NVE-data nøye"

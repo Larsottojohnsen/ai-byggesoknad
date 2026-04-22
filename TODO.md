@@ -1,6 +1,6 @@
 # AI Byggesøknad – Prosjekt TODO & Fremdrift
 
-> Sist oppdatert: 2026-04-21
+> Sist oppdatert: 2026-04-22
 > Repo: https://github.com/Larsottojohnsen/ai-byggesoknad
 > Live: https://larsottojohnsen.github.io/ai-byggesoknad/
 > Status-nøkkel: ✅ Ferdig | 🔄 Pågår | ⬜ Ikke startet | ❌ Blokkert
@@ -15,7 +15,7 @@
 - [x] ✅ `.gitignore`, `README.md`, `pnpm-workspace.yaml`, `.env.example`
 - [x] ✅ `scripts/dev.sh` – lokal oppstart
 - [x] ✅ GitHub Pages landingsside (`docs/index.html`) – profesjonell HTML/CSS
-- [x] ✅ GitHub Actions workflow for automatisk deploy til Pages (`.github/workflows/pages.yml`)
+- [x] ✅ GitHub Pages deployet fra `/docs`-mappen
 
 ### Database
 - [x] ✅ Docker Compose: PostgreSQL 15 + PostGIS 3.4 + Redis 7
@@ -25,7 +25,7 @@
 ### Backend (FastAPI)
 - [x] ✅ `main.py`, `core/config.py`, `core/database.py`, `core/cache.py`
 - [x] ✅ `models/schemas.py` – alle Pydantic-modeller
-- [x] ✅ `models/orm.py` – SQLAlchemy ORM-modeller (Fase 2)
+- [x] ✅ `models/orm.py` – SQLAlchemy ORM-modeller
 - [x] ✅ `providers/address_provider.py` – Kartverket **TESTET**
 - [x] ✅ `providers/property_provider.py` – graceful fallback
 - [x] ✅ `providers/plan_provider.py` – graceful fallback
@@ -72,25 +72,60 @@
   - Flomsoner (NVE ArcGIS WMS)
   - Skredfareområder (NVE ArcGIS WMS)
   - Lag-toggle med fargekoding
-  - Risikonivå-badge på kartet
-  - Eiendomsgrense-sirkel som fallback
 
 ---
 
-## FASE 3 – Innsending & Integrasjoner (Neste)
-
-### Altinn-integrasjon
-- [ ] ⬜ OAuth mot Altinn
-- [ ] ⬜ Prefill søknadsskjema (blankett 5174)
-- [ ] ⬜ Innsending via Altinn API
+## FASE 3 – Kommuneintegrasjon & Kvalitet ✅ FERDIG
 
 ### Kommuneintegrasjon
-- [ ] ⬜ eByggesak-integrasjon
-- [ ] ⬜ Kommunespesifikke regler (YAML per kommune)
-- [ ] ⬜ Automatisk kommuneidentifikasjon fra koordinat
+- [x] ✅ `providers/municipality_provider.py` – identifiserer kommune fra koordinat (Kartverket API)
+- [x] ✅ `rules/kommuner/0301_oslo.yaml` – Oslo-spesifikke regler, gebyrer, kontakt
+- [x] ✅ `rules/kommuner/4601_bergen.yaml` – Bergen-spesifikke regler
+- [x] ✅ `rules/kommuner/5001_trondheim.yaml` – Trondheim-spesifikke regler
+- [x] ✅ `routers/municipality.py` – endepunkter:
+  - `GET /municipality/identify?lat=&lng=`
+  - `GET /municipality/rules/{kommunenr}`
+  - `GET /municipality/supported`
+- [x] ✅ `analysis_service.py` – integrert kommuneidentifikasjon og ekstra dokumentkrav
 
-### Auth & Multi-tenancy
-- [ ] ⬜ Brukerregistrering/innlogging
+### Rate Limiting & Middleware
+- [x] ✅ In-memory token bucket rate limiter (60 req/min generelt, 10 req/min for AI-endepunkter)
+- [x] ✅ `X-RateLimit-Limit` og `X-RateLimit-Remaining` headers
+- [x] ✅ Request timing middleware (`X-Response-Time` header)
+- [x] ✅ `Retry-After` header ved 429-respons
+
+### SSE Fremdriftsindikator
+- [x] ✅ `GET /project/{id}/progress` – Server-Sent Events stream
+- [x] ✅ `emit_progress()` funksjon i analysis_service
+- [x] ✅ `components/analysis/AnalysisProgress.tsx` – animert steg-for-steg UI
+- [x] ✅ `analyze/page.tsx` – oppdatert med modal progress overlay
+
+### Alembic Migrasjoner
+- [x] ✅ `alembic.ini` + `alembic/env.py` (async SQLAlchemy)
+- [x] ✅ `alembic/versions/001_initial_schema.py` – alle tabeller
+- [x] ✅ `alembic/versions/002_add_municipality_fields.py` – kommunenr, fylke, rate_limit_log
+
+### Tester (pytest)
+- [x] ✅ `tests/test_rule_engine.py` – 33 tester for regelmotor
+- [x] ✅ `tests/test_municipality_provider.py` – 13 tester for kommuneintegrasjon
+- [x] ✅ `tests/conftest.py` + `pytest.ini`
+- [x] ✅ **46/46 tester passerer** ✅
+
+---
+
+## FASE 4 – Altinn & Innsending (Neste)
+
+### Altinn-integrasjon
+- [ ] ⬜ OAuth mot Altinn (Maskinporten)
+- [ ] ⬜ Prefill søknadsskjema (blankett 5174)
+- [ ] ⬜ Innsending via Altinn API v3
+
+### eByggesak-integrasjon
+- [ ] ⬜ Kommunespesifikk eByggesak-kobling
+- [ ] ⬜ Automatisk saksnummer-oppslag
+
+### Brukerautentisering (Fase 5)
+- [ ] ⬜ NextAuth.js / Clerk
 - [ ] ⬜ Prosjekthistorikk per bruker
 - [ ] ⬜ Deling av prosjekter
 
@@ -98,25 +133,12 @@
 
 ## Teknisk gjeld
 
-- [ ] ⬜ Pytest-tester for regelmotor
-- [ ] ⬜ Rate limiting på API
+- [ ] ⬜ E2E-tester (Playwright)
 - [ ] ⬜ Sentry error tracking
 - [ ] ⬜ OpenTelemetry tracing
-- [ ] ⬜ Alembic for DB-migrasjoner
 - [ ] ⬜ Frontend build-optimalisering (pnpm build)
-- [ ] ⬜ E2E-tester (Playwright)
-
----
-
-## Kjente begrensninger (v1)
-
-| Begrensning | Årsak | Plan |
-|---|---|---|
-| Eiendomsdata returnerer fallback | WFS utilgjengelig i sandbox | Fungerer i prod |
-| Plandata returnerer ukjent | Geonorge WFS begrensning | Fungerer i prod |
-| NVE faredata returnerer ukjent | ArcGIS begrensning i sandbox | Fungerer i prod |
-| In-memory prosjektlagring (dev) | Ingen Docker i dev | Start Docker Compose |
-| Ingen auth | Bevisst v1-valg | Fase 3 |
+- [ ] ⬜ Flere kommuner i YAML (Stavanger, Kristiansand, Tromsø, ++)
+- [ ] ⬜ Persistent rate limiting (Redis-backed)
 
 ---
 
@@ -129,12 +151,16 @@ POST /project/create
 POST /project/{id}/analyze
 GET  /project/{id}
 GET  /project/{id}/results
+GET  /project/{id}/progress          ← SSE (Fase 3)
 POST /classify
-POST /documents/generate          → PDF-rapport
-POST /documents/tiltaksbeskrivelse → AI Agent 3
-POST /documents/nabovarsel         → AI Agent 4
-POST /documents/soknadsutkast      → AI Agent 5
+POST /documents/generate             → PDF-rapport
+POST /documents/tiltaksbeskrivelse   → AI Agent 3
+POST /documents/nabovarsel           → AI Agent 4
+POST /documents/soknadsutkast        → AI Agent 5
 GET  /documents/download/{filename}
+GET  /municipality/identify?lat=&lng= ← Fase 3
+GET  /municipality/rules/{kommunenr}  ← Fase 3
+GET  /municipality/supported          ← Fase 3
 ```
 
 ---
@@ -150,6 +176,21 @@ cp .env.example .env
 ```
 
 Frontend: http://localhost:3000 · Backend: http://localhost:8000 · API-docs: http://localhost:8000/docs
+
+### Kjør tester
+
+```bash
+cd apps/api
+pytest tests/ -v
+# → 46/46 passed
+```
+
+### Kjør Alembic-migrasjoner
+
+```bash
+cd apps/api
+alembic upgrade head
+```
 
 ---
 

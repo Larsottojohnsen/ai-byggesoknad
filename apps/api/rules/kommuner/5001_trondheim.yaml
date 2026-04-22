@@ -1,0 +1,48 @@
+# Kommunespesifikke regler – Trondheim (kommunenr: 5001)
+# Kilde: Trondheim kommunes byggesaksforskrift og kommuneplan 2020
+
+kommune_nr: "5001"
+kommune_navn: "Trondheim"
+fylke: "Trøndelag"
+sist_oppdatert: "2026-01-01"
+
+kontakt:
+  epost: "postmottak@trondheim.kommune.no"
+  telefon: "72 54 00 00"
+  url: "https://www.trondheim.kommune.no/tema/bygg-og-eiendom/"
+  ebyggesak_url: "https://ebyggesak.no/trondheim"
+
+arealplan:
+  maks_bya_bolig_sentrum: 50
+  maks_bya_bolig_ytre: 35
+  maks_gesims_hoyde_enebolig: 8.0
+  maks_mone_hoyde_enebolig: 11.0
+  min_uteoppholdsareal_per_boenhet: 5
+
+saerlige_tiltak:
+  - type: "tiltak_kvikkleire"
+    beskrivelse: "Trondheim har store kvikkleireavsetninger – NGI-vurdering kreves i mange områder"
+    krav_geoteknisk_rapport: true
+    saksbehandlingstid_uker: 10
+
+  - type: "kjeller_innredning"
+    beskrivelse: "Innredning av kjeller – vurder grunnforhold (kvikkleire)"
+    krav_grunnundersokelse: true
+    min_takhøyde_m: 2.2
+
+gebyrer:
+  enkel_tiltak_kr: 5200
+  ett_trinns_soknad_kr: 13500
+  to_trinns_rammetillatelse_kr: 20000
+  dispensasjon_kr: 8200
+  nabovarsel_per_nabo_kr: 0
+
+ekstra_dokumentkrav:
+  - "Situasjonskart fra Trondheim kommunes kartportal"
+  - "Geoteknisk vurdering ved tiltak nær kvikkleireavsetninger"
+  - "ROS-analyse ved tiltak i flomutsatte områder langs Nidelva"
+
+regel_overrides:
+  FARE-003:
+    skred_terskel: "middels"
+    merknad: "Trondheim: kvikkleire er primær faredata – sjekk NGI-kart"

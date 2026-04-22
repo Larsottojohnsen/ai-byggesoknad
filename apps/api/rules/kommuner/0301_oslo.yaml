@@ -1,0 +1,67 @@
+# Kommunespesifikke regler – Oslo (kommunenr: 0301)
+# Disse reglene overstyrer eller supplerer nasjonale regler
+# Kilde: Oslo kommunes byggesaksforskrift og kommuneplan 2018
+
+kommune_nr: "0301"
+kommune_navn: "Oslo"
+fylke: "Oslo"
+sist_oppdatert: "2026-01-01"
+
+# Kontaktinfo
+kontakt:
+  epost: "postmottak@pbe.oslo.kommune.no"
+  telefon: "02180"
+  url: "https://www.oslo.kommune.no/plan-bygg-og-eiendom/"
+  ebyggesak_url: "https://innsyn.pbe.oslo.kommune.no/saksinnsyn/"
+
+# Kommuneplanens arealdel – særregler
+arealplan:
+  # Oslo har strengere krav til utnyttelsesgrad i tett bystruktur
+  maks_bya_bolig_sentrum: 60          # % BYA i sentrumsformål
+  maks_bya_bolig_ytre: 40             # % BYA i ytre by
+  maks_gesims_hoyde_enebolig: 9.0     # meter
+  maks_mone_hoyde_enebolig: 12.0      # meter
+  min_uteoppholdsareal_per_boenhet: 4 # m² per boenhet (Oslo-krav)
+
+# Tiltak som krever særskilt vurdering i Oslo
+saerlige_tiltak:
+  - type: "fasadeendring_verneverdig"
+    beskrivelse: "Fasadeendring på verneverdig bebyggelse krever særskilt vurdering av Byantikvaren"
+    saksbehandlingstid_uker: 12
+    krav_antikvaren: true
+
+  - type: "tilbygg_indre_by"
+    beskrivelse: "Tilbygg i indre by (ring 2) krever nabovarsling og kan utløse krav om reguleringsplan"
+    saksbehandlingstid_uker: 8
+
+  - type: "kjeller_innredning"
+    beskrivelse: "Innredning av kjeller til boenhet krever bruksendring og godkjenning av rømningsvei"
+    krav_romningstilgang: true
+    krav_dagslys: true
+    min_takhøyde_m: 2.2
+
+# Gebyrer (2026-satser)
+gebyrer:
+  enkel_tiltak_kr: 5800
+  ett_trinns_soknad_kr: 14200
+  to_trinns_rammetillatelse_kr: 22500
+  dispensasjon_kr: 8900
+  nabovarsel_per_nabo_kr: 0  # Oslo tar ikke gebyr for nabovarsel
+
+# Ekstra dokumentkrav i Oslo
+ekstra_dokumentkrav:
+  - "Situasjonskart fra Oslo kommune (bestilles via kommunens kartportal)"
+  - "Redegjørelse for universell utforming (TEK17 kap. 12)"
+  - "Energiberegning (TEK17 kap. 14) ved nybygg og større tilbygg"
+
+# Regler som overstyrer nasjonale standarder
+regel_overrides:
+  SØKP-001:
+    # Oslo: garasje inntil 50m² er unntatt søknadsplikt (nasjonalt: 50m²)
+    grense_m2: 50
+    merknad: "Samme som nasjonal regel"
+
+  PLAN-002:
+    # Oslo: strengere dispensasjonspraksis
+    dispensasjon_vanskelighetsgrad: "streng"
+    merknad: "Oslo har restriktiv dispensasjonspraksis – søk heller om reguleringsendring"
