@@ -82,14 +82,13 @@ export function MapView({ className }: MapViewProps) {
 
     async function initMap() {
       const ml = await import('maplibre-gl')
-      await import('maplibre-gl/dist/maplibre-gl.css')
 
       const map = new ml.Map({
         container: mapContainer.current!,
         style: KARTVERKET_STYLE,
         center: mapCenter,
         zoom: mapZoom,
-        attributionControl: true,
+        attributionControl: { compact: true },
       })
 
       map.on('load', () => {

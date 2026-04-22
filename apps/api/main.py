@@ -201,6 +201,28 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
+# ── Startup: run Alembic migrations ─────────────────────────────────────────
+@app.on_event("startup")
+async def run_migrations():
+    """Run Alembic migrations on startup if DATABASE_URL is configured."""
+    import os
+    db_url = os.environ.get("DATABASE_URL", "")
+    if not db_url or db_url.startswith("postgresql+asyncpg://localhost"):
+        logger.info("skipping_migrations", reason="no production DATABASE_URL")
+        return
+    try:
+        from alembic.config import Config
+        from alembic import command
+        alembic_cfg = Config("alembic.ini")
+        # Use sync URL for Alembic
+        sync_url = db_url.replace("postgresql+asyncpg://", "postgresql://").replace("postgresql://", "postgresql://")
+        alembic_cfg.set_main_option("sqlalchemy.url", sync_url)
+        command.upgrade(alembic_cfg, "head")
+        logger.info("migrations_complete")
+    except Exception as e:
+        logger.warning("migrations_skipped", error=str(e))
+
+
 if __name__ == "__main__":
     import os
     import uvicorn
