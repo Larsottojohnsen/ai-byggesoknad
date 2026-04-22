@@ -10,7 +10,6 @@ RUN apt-get update && apt-get install -y \
     libcairo2 \
     libglib2.0-0 \
     shared-mime-info \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -31,10 +30,6 @@ ENV PORT=8000
 
 # Expose default port
 EXPOSE 8000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
-    CMD curl -f http://localhost:${PORT}/health || exit 1
 
 # Run via python main.py - reads PORT from os.environ
 CMD ["python", "main.py"]
