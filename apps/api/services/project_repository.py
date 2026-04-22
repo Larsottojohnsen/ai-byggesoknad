@@ -91,7 +91,7 @@ class ProjectRepository:
     async def save_analysis_results(self, project_id: str, results: Dict[str, Any]) -> None:
         """Persist full analysis results including rule results and sub-objects."""
         update_data = {
-            "status": "complete",
+            "status": "analyzed",
             "measureType": results.get("classification", {}).get("measureType"),
             "riskLevel": results.get("riskLevel"),
             "applicationRequired": results.get("applicationRequired"),
