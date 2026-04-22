@@ -26,12 +26,12 @@ COPY . .
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
-# Expose port
+# Expose default port
 EXPOSE 8000
 
-# Health check - start-period gives app time to start
+# Health check using PORT env var with fallback
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
     CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
 
-# Start server - use sh -c so shell expands $PORT variable
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Run via python main.py so PORT env var is read inside Python (not shell)
+CMD ["python", "main.py"]
