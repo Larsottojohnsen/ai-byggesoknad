@@ -194,6 +194,28 @@ async def health_check():
     }
 
 
+@app.get("/debug/connectivity")
+async def debug_connectivity():
+    """Debug endpoint to test external API connectivity from Railway."""
+    import httpx
+    results = {}
+    test_urls = [
+        ("kartverket_eiendom", "https://api.kartverket.no/eiendom/v1/punkt?nord=59.9131&ost=10.7474&koordsys=4326"),
+        ("kartverket_kommuneinfo", "https://api.kartverket.no/kommuneinfo/v1/punkt?nord=59.9131&ost=10.7474&koordsys=4326"),
+        ("nve_flom", "https://kart.nve.no/enterprise/rest/services/Flomaktsomhet/MapServer/identify?f=json&geometry=10.7474,59.9131&geometryType=esriGeometryPoint&sr=4326&layers=all&tolerance=5&mapExtent=10.7374,59.9031,10.7574,59.9231&imageDisplay=100,100,96"),
+        ("dibk_wms", "https://nap.ft.dibk.no/services/wms/reguleringsplaner?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities"),
+    ]
+    headers = {"User-Agent": "ai-byggesoknad/1.0", "Accept": "application/json"}
+    async with httpx.AsyncClient(timeout=10.0, headers=headers) as client:
+        for name, url in test_urls:
+            try:
+                r = await client.get(url)
+                results[name] = {"status": r.status_code, "ok": r.status_code == 200, "bytes": len(r.content)}
+            except Exception as e:
+                results[name] = {"status": 0, "ok": False, "error": str(e)}
+    return {"connectivity": results}
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error("unhandled_exception", path=request.url.path, error=str(exc))
