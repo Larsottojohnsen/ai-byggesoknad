@@ -44,14 +44,18 @@ async def identify_municipality(lat: float, lng: float) -> Dict[str, Any]:
     # NOTE: The kommuneinfo API moved in Dec 2023 from ws.geonorge.no to api.kartverket.no
     # Try new endpoint first, then fall back to old one
     endpoints = [
-        "https://api.kartverket.no/kommuneinfo/v1/punkt",
-        "https://ws.geonorge.no/kommuneinfo/v1/punkt",
+        "https://api.kartverket.no/kommuneinfo/v1/punkt",  # Primary (confirmed working)
+        "https://ws.geonorge.no/kommuneinfo/v1/punkt",    # Fallback (old URL, may be blocked)
     ]
 
+    headers = {
+        "User-Agent": "ai-byggesoknad/1.0 (byggesoknad.no; kontakt@byggesoknad.no)",
+        "Accept": "application/json",
+    }
     for url in endpoints:
         try:
             params = {"nord": lat, "ost": lng, "koordsys": 4326}
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=12.0, headers=headers) as client:
                 resp = await client.get(url, params=params)
                 if resp.status_code == 200:
                     data = resp.json()

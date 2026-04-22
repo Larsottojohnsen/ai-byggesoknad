@@ -67,8 +67,12 @@ async def _wms_get_feature_info(
         "BBOX": bbox,
     }
 
+    headers = {
+        "User-Agent": "ai-byggesoknad/1.0 (byggesoknad.no; kontakt@byggesoknad.no)",
+        "Accept": "application/json",
+    }
     try:
-        async with httpx.AsyncClient(timeout=12.0) as client:
+        async with httpx.AsyncClient(timeout=12.0, headers=headers) as client:
             resp = await client.get(WMS_BASE, params=params)
             if resp.status_code == 200:
                 data = resp.json()

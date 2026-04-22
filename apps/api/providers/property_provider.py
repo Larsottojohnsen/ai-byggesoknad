@@ -13,15 +13,21 @@ logger = structlog.get_logger()
 # Kartverket Eiendom/Matrikkel REST API
 # NOTE: API may have moved, try multiple endpoints
 MATRIKKEL_ENDPOINTS = [
-    "https://ws.geonorge.no/eiendom/v1/punkt",
-    "https://api.kartverket.no/eiendom/v1/punkt",
+    "https://api.kartverket.no/eiendom/v1/punkt",  # Primary (confirmed working)
+    "https://ws.geonorge.no/eiendom/v1/punkt",     # Fallback (may be blocked)
 ]
 CACHE_TTL = 86400  # 24 hours
 
 
+HEADERS = {
+    "User-Agent": "ai-byggesoknad/1.0 (byggesoknad.no; kontakt@byggesoknad.no)",
+    "Accept": "application/json",
+}
+
+
 class PropertyProvider:
     def __init__(self):
-        self.client = httpx.AsyncClient(timeout=15.0)
+        self.client = httpx.AsyncClient(timeout=15.0, headers=HEADERS)
 
     async def lookup_by_coordinates(self, lat: float, lng: float) -> Optional[PropertyData]:
         """Look up property at given coordinates using Kartverket Matrikkel REST API."""
@@ -39,7 +45,7 @@ class PropertyProvider:
                         "ost": lng,
                         "koordsys": 4326,
                     },
-                    timeout=12.0,
+                    timeout=15.0,
                 )
 
                 if response.status_code == 200:
