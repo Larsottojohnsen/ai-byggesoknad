@@ -1,0 +1,3 @@
+# Railway monorepo configuration
+# The API service is in apps/api/
+# Configure individual services in Railway dashboard pointing to apps/api/
